@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>São Miguel Trip</title>
+<meta name="description" content="Day plans, parking, walks and live weather for the Azores road trip.">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#fbf4e2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14202b" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="São Miguel">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+</head>
+<body>
+<div id="app">
+  <header class="sr"><h1>São Miguel trip</h1></header>
+  <section id="mapArea" aria-label="Map">
+    <div id="map"></div>
+    <div class="map-tools" role="group" aria-label="Map controls">
+      <button id="btnLocate" type="button" aria-label="Centre on my location"></button>
+      <button id="btnFit" type="button" aria-label="Show the whole route"></button>
+      <button id="btnRadar" type="button" aria-label="Rain radar" aria-pressed="false"></button>
+    </div>
+    <ul id="legend" class="legend" aria-label="Map legend" hidden></ul>
+  </section>
+  <nav id="tabs" class="tabs" aria-label="Days"></nav>
+  <div id="sheet" class="sheet" data-snap="half">
+    <button id="grab" class="grab" type="button" aria-label="Resize panel"></button>
+    <main id="list" class="list" tabindex="-1" aria-label="Itinerary"></main>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "azores-trip",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "validate": "node scripts/validate.mjs",
+    "weather": "node scripts/fetch-weather.mjs",
+    "dev": "node scripts/validate.mjs && vite",
+    "build": "node scripts/validate.mjs && node scripts/fetch-weather.mjs && vite build && node scripts/postbuild.mjs",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "@fontsource/patrick-hand": "^5.1.0",
+    "leaflet": "^1.9.4"
+  }
+}

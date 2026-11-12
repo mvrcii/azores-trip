@@ -1,0 +1,107 @@
+{
+  "trip": "São Miguel",
+  "subtitle": "Azores road trip",
+  "timezone": "Atlantic/Azores",
+  "bases": {
+    "Ponta Delgada": { "label": "Base: Ponta Delgada", "lat": 37.742, "lon": -25.669 },
+    "Furnas": { "label": "Base: Furnas", "lat": 37.7728, "lon": -25.3109 }
+  },
+  "days": [
+    {
+      "date": "2026-11-12",
+      "title": "Ribeira Grande: waterfall loop & mud",
+      "tag": "rainy day",
+      "start": "Ponta Delgada",
+      "base": "Ponta Delgada",
+      "items": [
+        { "id": "d1-breakfast", "time": "09:00", "durationMin": 45, "name": "Breakfast at Pão do Rei", "type": "food", "lat": 37.74095, "lon": -25.66273, "parking": null, "walk": { "minutes": 8, "km": 0.6, "surface": "city pavement" }, "note": "On foot from the base. The car stays put.", "bookingNeeded": false },
+        { "id": "d1-hike", "time": "10:30", "durationMin": 180, "name": "PRC29 Caldeiras – Salto do Cabrito loop", "type": "hike", "lat": 37.797866, "lon": -25.487103, "parking": { "name": "Caldeiras da Ribeira Grande car park", "lat": 37.79791, "lon": -25.48738, "note": "Small lot next to the thermal baths, trailhead board is right there.", "free": true }, "walk": { "minutes": 1, "km": 0.05, "surface": "paved" }, "route": { "mode": "hike", "polyline": [[37.797866, -25.487103], [37.7993, -25.4902], [37.7975, -25.4935], [37.79619, -25.49433], [37.7949, -25.4912], [37.7962, -25.4885], [37.797866, -25.487103]] }, "note": "8.6 km loop, about 3 h. Metal walkways at Salto do Cabrito are slippery when wet.", "bookingNeeded": false },
+        { "id": "d1-lunch", "time": "13:45", "durationMin": 75, "name": "Lunch in Ribeira Grande", "type": "food", "lat": 37.8228, "lon": -25.5205, "parking": { "name": "Free parking, Rua da Feira", "lat": 37.82335, "lon": -25.52461, "note": "Public lot by the market, short walk to the centre.", "free": true }, "walk": { "minutes": 5, "km": 0.35, "surface": "city pavement" }, "note": "Town centre around the Câmara Municipal.", "bookingNeeded": false },
+        { "id": "d1-mud", "time": "15:30", "durationMin": 90, "name": "Volcanic mud massage, Termas das Caldeiras", "type": "hotspring", "lat": 37.79778, "lon": -25.48704, "parking": { "name": "Caldeiras da Ribeira Grande car park", "lat": 37.79791, "lon": -25.48738, "note": "Same lot as this morning's hike.", "free": true }, "walk": { "minutes": 1, "km": 0.05, "surface": "paved" }, "note": "Bring swimwear and a dark towel.", "bookingNeeded": true },
+        { "id": "d1-back", "time": "17:30", "durationMin": 0, "name": "Back to Ponta Delgada", "type": "logistics", "lat": 37.742, "lon": -25.669, "parking": { "name": "Base: Ponta Delgada", "lat": 37.742, "lon": -25.669, "note": "", "free": true }, "walk": { "minutes": 0, "km": 0, "surface": "" }, "note": "", "bookingNeeded": false }
+      ]
+    },
+    {
+      "date": "2026-11-13",
+      "title": "Sete Cidades & the west coast",
+      "tag": "dry day",
+      "start": "Ponta Delgada",
+      "base": "Ponta Delgada",
+      "items": [
+        { "id": "d2-inferno", "time": "09:00", "durationMin": 45, "name": "Miradouro da Boca do Inferno", "type": "view", "lat": 37.84293, "lon": -25.76361, "parking": { "name": "Lagoa do Canário car park", "lat": 37.83604, "lon": -25.76282, "note": "Roadside lot on the ER 8-1ª at the Lagoa do Canário gate.", "free": true }, "walk": { "minutes": 15, "km": 1.0, "surface": "forest track, then steps" }, "note": "Go early: cloud usually builds on the rim during the morning.", "bookingNeeded": false },
+        { "id": "d2-hike", "time": "10:00", "durationMin": 150, "name": "PR03 Vista do Rei → Sete Cidades", "type": "hike", "lat": 37.83935, "lon": -25.79487, "parking": { "name": "Vista do Rei car park", "lat": 37.83935, "lon": -25.79537, "note": "Leave the car here; taxi back from the village after lunch.", "free": true }, "walk": { "minutes": 1, "km": 0.05, "surface": "paved" }, "route": { "mode": "hike", "polyline": [[37.83935, -25.79487], [37.8442, -25.8022], [37.8508, -25.8078], [37.8578, -25.8086], [37.8628, -25.8052], [37.8636, -25.8005], [37.86277, -25.79812]] }, "note": "7.5 km one way along the crater rim, ends at the village church.", "bookingNeeded": false },
+        { "id": "d2-lunch", "time": "12:30", "durationMin": 90, "returnMin": 15, "name": "Lunch in Sete Cidades", "type": "food", "lat": 37.8625, "lon": -25.7965, "parking": null, "walk": { "minutes": 3, "km": 0.2, "surface": "village streets" }, "note": "On foot from the church. Afterwards taxi back up to the car at Vista do Rei (about 10 min).", "bookingNeeded": false },
+        { "id": "d2-ferraria", "time": "14:30", "durationMin": 105, "name": "Ponta da Ferraria ocean hot spring", "type": "hotspring", "lat": 37.85827, "lon": -25.85232, "parking": { "name": "Ferraria lower car park", "lat": 37.85817, "lon": -25.84987, "note": "At the bottom of the steep switchback road. Use low gear.", "free": true }, "walk": { "minutes": 6, "km": 0.4, "surface": "paved path, then lava rock" }, "note": "Only warm around low tide; check the tide table. Hold the ropes, skip it in heavy swell.", "sea": { "lat": 37.86, "lon": -25.87 }, "tide": true, "bookingNeeded": false },
+        { "id": "d2-escalvado", "time": "16:45", "durationMin": 45, "name": "Miradouro da Ponta do Escalvado", "type": "view", "lat": 37.87123, "lon": -25.84144, "parking": { "name": "Escalvado viewpoint lay-by", "lat": 37.87115, "lon": -25.84125, "note": "Park at the viewpoint itself.", "free": true }, "walk": { "minutes": 1, "km": 0.05, "surface": "paved" }, "note": "Sunset over Mosteiros.", "bookingNeeded": false },
+        { "id": "d2-back", "time": "17:45", "durationMin": 0, "name": "Back to Ponta Delgada", "type": "logistics", "lat": 37.742, "lon": -25.669, "parking": { "name": "Base: Ponta Delgada", "lat": 37.742, "lon": -25.669, "note": "", "free": true }, "walk": { "minutes": 0, "km": 0, "surface": "" }, "note": "", "bookingNeeded": false }
+      ]
+    },
+    {
+      "date": "2026-11-14",
+      "title": "Whales, Lagoa do Fogo, on to Furnas",
+      "tag": "moving day",
+      "start": "Ponta Delgada",
+      "base": "Furnas",
+      "items": [
+        { "id": "d3-whales", "time": "08:15", "durationMin": 180, "name": "Whale watching with Futurismo", "type": "boat", "lat": 37.73969, "lon": -25.66401, "parking": { "name": "Avenida car park (Portas do Mar)", "lat": 37.73962, "lon": -25.66621, "note": "Underground car park on Av. Infante Dom Henrique.", "free": false }, "walk": { "minutes": 4, "km": 0.25, "surface": "promenade" }, "route": { "mode": "boat", "polyline": [[37.7389, -25.6612], [37.715, -25.645], [37.675, -25.61], [37.66, -25.66], [37.69, -25.69], [37.7389, -25.6612]] }, "sea": { "lat": 37.67, "lon": -25.64 }, "note": "Check in at Marina Portas do Mar. Luggage stays hidden in the boot.", "bookingNeeded": true },
+        { "id": "d3-fogo", "time": "12:30", "durationMin": 30, "name": "Miradouro da Lagoa do Fogo", "type": "view", "lat": 37.76942, "lon": -25.48829, "parking": { "name": "Lagoa do Fogo viewpoint parking", "lat": 37.77076, "lon": -25.48775, "note": "Roadside bays on the EN5-2A, fills up around midday.", "free": true }, "walk": { "minutes": 3, "km": 0.15, "surface": "roadside path" }, "note": "Often in cloud. If it is, try Miradouro da Barrosa a little further up.", "bookingNeeded": false },
+        { "id": "d3-velha", "time": "13:15", "durationMin": 90, "name": "Caldeira Velha", "type": "hotspring", "lat": 37.78266, "lon": -25.50043, "parking": { "name": "Caldeira Velha car park", "lat": 37.78475, "lon": -25.50091, "note": "Official lot beside the road, below the entrance.", "free": true }, "walk": { "minutes": 5, "km": 0.3, "surface": "paved path" }, "note": "Timed entry slots.", "bookingNeeded": true },
+        { "id": "d3-furnas", "time": "15:30", "durationMin": 0, "name": "Arrive in Furnas", "type": "logistics", "lat": 37.7728, "lon": -25.3109, "parking": { "name": "Base: Furnas", "lat": 37.7728, "lon": -25.3109, "note": "", "free": true }, "walk": { "minutes": 0, "km": 0, "surface": "" }, "note": "", "bookingNeeded": false }
+      ]
+    },
+    {
+      "date": "2026-11-15",
+      "title": "Furnas: steam, cozido & hot pools",
+      "tag": "very rainy",
+      "start": "Furnas",
+      "base": "Furnas",
+      "items": [
+        { "id": "d4-caldeiras", "time": "10:00", "durationMin": 45, "name": "Caldeiras das Furnas", "type": "sight", "lat": 37.7728, "lon": -25.304, "parking": { "name": "Rua das Caldeiras parking", "lat": 37.77309, "lon": -25.30528, "note": "Lot right next to the village fumaroles.", "free": true }, "walk": { "minutes": 2, "km": 0.1, "surface": "paved" }, "note": "Boiling springs in the village. Taste the mineral water taps.", "bookingNeeded": false },
+        { "id": "d4-fumarolas", "time": "11:00", "durationMin": 75, "name": "Fumarolas da Lagoa das Furnas", "type": "sight", "lat": 37.76855, "lon": -25.33155, "parking": { "name": "Lagoa das Furnas fumaroles car park", "lat": 37.769, "lon": -25.3305, "note": "Paid entry at the gate (per person), parking inside.", "free": false }, "walk": { "minutes": 3, "km": 0.15, "surface": "boardwalk" }, "note": "Cozido pots come out of the ground around 12:00–12:30.", "bookingNeeded": false },
+        { "id": "d4-lunch", "time": "13:00", "durationMin": 75, "name": "Lunch in Furnas (cozido)", "type": "food", "lat": 37.7727, "lon": -25.3125, "parking": { "name": "Largo Marquês da Praia parking", "lat": 37.77259, "lon": -25.31619, "note": "Central square by the Terra Nostra gate.", "free": true }, "walk": { "minutes": 5, "km": 0.3, "surface": "village streets" }, "note": "Cozido usually has to be ordered ahead.", "bookingNeeded": false },
+        { "id": "d4-terra", "time": "14:30", "durationMin": 150, "name": "Parque Terra Nostra", "type": "hotspring", "lat": 37.77222, "lon": -25.31525, "parking": { "name": "Largo Marquês da Praia parking", "lat": 37.77259, "lon": -25.31619, "note": "Same square as lunch; leave the car.", "free": true }, "walk": { "minutes": 2, "km": 0.1, "surface": "paved" }, "note": "Iron-rich water stains swimwear orange. Old dark swimsuit.", "bookingNeeded": false },
+        { "id": "d4-beija", "time": "19:00", "durationMin": 90, "name": "Poça da Dona Beija", "type": "hotspring", "lat": 37.76943, "lon": -25.31964, "parking": { "name": "Dona Beija car park", "lat": 37.7693, "lon": -25.31899, "note": "Small lot opposite the entrance on Lomba das Barracas.", "free": true }, "walk": { "minutes": 1, "km": 0.05, "surface": "paved" }, "note": "Evening slot, lovely in the rain.", "bookingNeeded": true }
+      ]
+    },
+    {
+      "date": "2026-11-16",
+      "title": "Nordeste: waterfalls & cliff viewpoints",
+      "tag": "base tonight TBD",
+      "start": "Furnas",
+      "base": null,
+      "items": [
+        { "id": "d5-prego", "time": "09:00", "durationMin": 135, "name": "PRC09 Sanguinho / Salto do Prego", "type": "hike", "lat": 37.7481, "lon": -25.2014, "parking": { "name": "Faial da Terra trailhead parking", "lat": 37.74807, "lon": -25.20161, "note": "Small lot on Rua do Burguete at the top of the village.", "free": true }, "walk": { "minutes": 1, "km": 0.05, "surface": "paved" }, "route": { "mode": "hike", "polyline": [[37.7481, -25.2014], [37.7522, -25.2003], [37.7568, -25.1982], [37.76059, -25.19683], [37.7562, -25.1962], [37.7528, -25.1975], [37.7481, -25.2014]] }, "note": "4.6 km loop to the waterfall, back via the restored hamlet of Sanguinho. Muddy after rain.", "bookingNeeded": false },
+        { "id": "d5-sossego", "time": "11:45", "durationMin": 30, "name": "Miradouro da Ponta do Sossego", "type": "view", "lat": 37.79919, "lon": -25.14575, "parking": { "name": "Ponta do Sossego car park", "lat": 37.79891, "lon": -25.14668, "note": "Lot at the garden entrance.", "free": true }, "walk": { "minutes": 2, "km": 0.1, "surface": "garden paths" }, "note": "Gardens, picnic tables, toilets.", "bookingNeeded": false },
+        { "id": "d5-barcos", "time": "12:30", "durationMin": 75, "name": "Nordeste + Miradouro da Vista dos Barcos", "type": "view", "lat": 37.81946, "lon": -25.1391, "parking": { "name": "Vista dos Barcos lay-by", "lat": 37.81939, "lon": -25.13921, "note": "Roadside bays at the viewpoint. For lunch in Nordeste use the lot on Rua da Nazaré, 600 m north.", "free": true }, "walk": { "minutes": 1, "km": 0.05, "surface": "paved" }, "note": "View down to Farol do Arnel. Do not drive down the lighthouse road. Lunch in Nordeste town.", "bookingNeeded": false },
+        { "id": "d5-risco", "time": "14:00", "durationMin": 40, "name": "Cascata do Risco", "type": "sight", "lat": 37.85319, "lon": -25.28905, "parking": { "name": "EN 1-1ª lay-by, Achadinha", "lat": 37.84997, "lon": -25.29357, "note": "Nearest lay-by. You may be able to park closer.", "free": true }, "walk": { "minutes": 12, "km": 0.7, "surface": "lane and footpath" }, "note": "Parking and path unconfirmed. Check on arrival.", "bookingNeeded": false },
+        { "id": "d5-farinha", "time": "15:00", "durationMin": 40, "name": "Miradouro do Salto da Farinha", "type": "view", "lat": 37.85384, "lon": -25.29762, "parking": { "name": "Salto da Farinha parking", "lat": 37.85404, "lon": -25.29633, "note": "Lot at the end of the access road.", "free": true }, "walk": { "minutes": 3, "km": 0.15, "surface": "paved, steps" }, "note": "Waterfall view from above; steep path continues down to the bathing area.", "bookingNeeded": false },
+        { "id": "d5-farolim", "time": "16:00", "durationMin": 30, "name": "Farolim dos Fenais da Ajuda", "type": "sight", "lat": 37.86581, "lon": -25.31726, "parking": { "name": "End of Rua do Moio", "lat": 37.865, "lon": -25.3175, "note": "Roadside, end of the lane.", "free": true }, "walk": { "minutes": 3, "km": 0.15, "surface": "track" }, "note": "Small lighthouse on the cliff edge.", "bookingNeeded": false },
+        { "id": "d5-gorreana", "time": "16:45", "durationMin": 60, "name": "Chá Gorreana tea factory", "type": "sight", "lat": 37.81839, "lon": -25.40256, "parking": { "name": "Gorreana car park", "lat": 37.81811, "lon": -25.40243, "note": "In front of the factory.", "free": true }, "walk": { "minutes": 1, "km": 0.05, "surface": "paved" }, "note": "Free tasting. Check closing time, it can be 17:00 in winter.", "bookingNeeded": false }
+      ]
+    },
+    {
+      "date": "2026-11-17",
+      "title": "Lagoa do Fogo shore & Ponta Delgada",
+      "tag": "last full day",
+      "start": null,
+      "base": "Ponta Delgada",
+      "items": [
+        { "id": "d6-fogo", "time": "10:00", "durationMin": 120, "name": "Lagoa do Fogo: walk down to the lake", "type": "hike", "lat": 37.76942, "lon": -25.48829, "parking": { "name": "Lagoa do Fogo viewpoint parking", "lat": 37.77076, "lon": -25.48775, "note": "Roadside bays on the EN5-2A.", "free": true }, "walk": { "minutes": 3, "km": 0.15, "surface": "roadside path" }, "route": { "mode": "hike", "polyline": [[37.76942, -25.48829], [37.7682, -25.4862], [37.7668, -25.4842], [37.7655, -25.4828]] }, "note": "Steep path down to the shore, about 30 min down and 45 min back up. Skip it in cloud or heavy rain.", "bookingNeeded": false },
+        { "id": "d6-jardim", "time": "12:30", "durationMin": 60, "name": "Jardim Botânico António Borges", "type": "sight", "lat": 37.74384, "lon": -25.67598, "parking": { "name": "Street parking by the garden", "lat": 37.7432, "lon": -25.6748, "note": "Metered street bays around the garden.", "free": false }, "walk": { "minutes": 3, "km": 0.2, "surface": "city pavement" }, "note": "Grottoes and giant fig trees. Free entry.", "bookingNeeded": false },
+        { "id": "d6-base", "time": "15:00", "durationMin": 0, "name": "Base in Ponta Delgada", "type": "logistics", "lat": 37.742, "lon": -25.669, "parking": { "name": "Base: Ponta Delgada", "lat": 37.742, "lon": -25.669, "note": "", "free": true }, "walk": { "minutes": 0, "km": 0, "surface": "" }, "note": "Pack for the flight.", "bookingNeeded": false },
+        { "id": "d6-fuel", "time": "18:00", "durationMin": 20, "name": "Refuel near the airport", "type": "logistics", "lat": 37.7445, "lon": -25.6975, "parking": { "name": "Fuel station on the airport road", "lat": 37.7445, "lon": -25.6975, "note": "Any station on the airport road.", "free": true }, "walk": { "minutes": 0, "km": 0, "surface": "" }, "note": "Fill to the level on the rental contract and keep the receipt.", "bookingNeeded": false }
+      ]
+    },
+    {
+      "date": "2026-11-18",
+      "title": "Car back, fly home",
+      "tag": "departure",
+      "start": "Ponta Delgada",
+      "base": null,
+      "items": [
+        { "id": "d7-car", "time": "08:00", "durationMin": 30, "name": "Return the car at the airport", "type": "logistics", "lat": 37.74919, "lon": -25.70844, "parking": { "name": "P3 Rent-a-car, Aeroporto João Paulo II", "lat": 37.74919, "lon": -25.70844, "note": "Follow the rent-a-car signs. Photograph the car and fuel gauge.", "free": true }, "walk": { "minutes": 0, "km": 0, "surface": "" }, "note": "", "bookingNeeded": false },
+        { "id": "d7-flight", "time": "10:15", "durationMin": 0, "name": "Flight", "fixed": true, "arriveEarlyMin": 60, "type": "logistics", "lat": 37.7466, "lon": -25.7062, "parking": null, "walk": { "minutes": 4, "km": 0.3, "surface": "paved" }, "note": "Departs 10:15.", "bookingNeeded": false }
+      ]
+    }
+  ]
+}
