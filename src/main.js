@@ -4,6 +4,7 @@ import '@fontsource/patrick-hand/latin-400.css';
 import './style.css';
 import { fetchWeather, forecastFor, todayIn, locKey, sky, LIMITS } from './wxcore.js';
 import { ico, wxOf } from './icons.js';
+import { toMin, hm, dur, km, dist, DAY_COLORS, createPlan } from './plan.js';
 
 /* ---------- small helpers ---------- */
 const $ = (s) => document.querySelector(s);
@@ -12,18 +13,8 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : (JSON.parse(v) ?? d); } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
 };
-const toMin = (t) => +t.slice(0, 2) * 60 + +t.slice(3, 5);
-const hm = (m) => { const x = ((Math.round(m) % 1440) + 1440) % 1440; return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
-const dur = (m) => (m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ' ' + (m % 60) : ''}` : `${m} min`);
-const km = (m) => (m >= 10000 ? Math.round(m / 1000) : (m / 1000).toFixed(1)) + ' km';
 const n1 = (v) => (v == null ? '–' : v.toFixed(1));
 const r0 = (v) => (v == null ? '–' : Math.round(v));
-function dist(a, b) {
-  const R = 6371000, r = Math.PI / 180;
-  const x = (b.lon - a.lon) * r * Math.cos(((a.lat + b.lat) / 2) * r), y = (b.lat - a.lat) * r;
-  return Math.sqrt(x * x + y * y) * R;
-}
-const DAY_COLORS = ['#9c6a00', '#1a7d79', '#8a4fb0', '#7a5a3a', '#a84a86', '#5468c4', '#227d4d', '#6b6f1f', '#4a7a9c']; // ≥ 4.5:1 with white; no reds (warnings) and no route blue
 const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const WIDE = matchMedia('(min-width: 900px) and (min-height: 500px)');
 const MODE = {
@@ -36,88 +27,130 @@ const TYPE = { view: 'Viewpoint', hike: 'Hike', hotspring: 'Hot spring', food: '
 const fmtDate = (d, opt) => new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', ...opt }).format(new Date(d + 'T12:00:00Z'));
 const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-/* ---------- state ---------- */
+/* ---------- trips ---------- */
+// Each trip keeps its own ticks, time shifts, routes, forecast and cached plan under trip:<id>:<key>.
 const params = new URLSearchParams(location.search);
-const state = {
-  itin: null, days: [], view: 'trip', sel: null, snap: 'half', wx: null, routes: store.get('routes.v1', {}),
-  done: store.get('done.v1', {}), shift: store.get('shift.v1', {}), lastWxTry: 0, me: null, optsOpen: false, touched: false, listTop: 0,
+let tripId = null;
+const tstore = {
+  get: (k, d) => store.get(`trip:${tripId}:${k}`, d),
+  set: (k, v) => store.set(`trip:${tripId}:${k}`, v),
 };
+const LEGACY_TRIP = 'sao-miguel-2026'; // the only trip before trips became files
+// Keys saved before trips were namespaced belong to São Miguel. The live app (/) and the preview (/next/) share
+// this origin's storage, and the live app still reads and writes the old keys, so they are copied, never deleted.
+// Ticks and time shifts are copied again whenever the live app changed them since the last copy.
+function migrateLegacy() {
+  const raw = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const put = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage blocked or full */ } };
+  for (const k of ['routes.v1', 'wx.v1', 'itin.v1']) { // caches: the first copy is enough
+    const v = raw(k), nk = `trip:${LEGACY_TRIP}:${k}`;
+    if (v != null && raw(nk) == null) put(nk, v);
+  }
+  // Ticks and shifts: replay what the live app changed since the last copy (added, changed or removed entries, so an
+  // un-tick or a shift reset there carries over too); entries the live app did not touch keep the preview's value.
+  for (const k of ['done.v1', 'shift.v1']) {
+    const v = raw(k), nk = `trip:${LEGACY_TRIP}:${k}`, seen = `trip:${LEGACY_TRIP}:legacy.${k}`;
+    if (v == null || v === raw(seen)) continue; // nothing there, or nothing new since the last copy
+    try {
+      const before = JSON.parse(raw(seen) || '{}') || {}, live = JSON.parse(v) || {}, mine = JSON.parse(raw(nk) || '{}') || {};
+      for (const key of Object.keys(before)) if (!(key in live)) delete mine[key];
+      for (const [key, val] of Object.entries(live)) if (before[key] !== val) mine[key] = val;
+      put(nk, JSON.stringify(mine)); put(seen, v);
+    } catch { /* unreadable: leave both alone */ }
+  }
+}
+function cachedTrips() { // no saved index: the trips whose plan this phone already has
+  const out = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const id = localStorage.key(i).match(/^trip:([a-z0-9-]+):itin\.v1$/)?.[1];
+      const it = id && store.get(`trip:${id}:itin.v1`, null);
+      if (it?.days?.length && it.timezone) out.push({ id, start: it.days[0].date, end: it.days[it.days.length - 1].date, timezone: it.timezone });
+    }
+  } catch { /* none */ }
+  return out.sort((a, b) => (a.start < b.start ? -1 : 1));
+}
+const validTrips = (list) => (Array.isArray(list) ? list.filter((t) => /^[a-z0-9-]+$/.test(t?.id || '') && t.start && t.end && t.timezone) : []);
+async function loadIndex() {
+  try {
+    const r = await fetch('data/trips/index.json', { signal: AbortSignal.timeout?.(8000), cache: 'no-cache' });
+    const list = r.ok ? validTrips((await r.json())?.trips) : [];
+    if (list.length) { store.set('trips.v1', list); return list; }
+  } catch { /* offline */ }
+  return null;
+}
+// ?trip=<id>, else the trip that contains today, else the next one, else the first.
+function pickTrip(list) {
+  const want = params.get('trip');
+  if (want && list.some((t) => t.id === want)) return want;
+  const today = (t) => params.get('now')?.slice(0, 10) || todayIn(t.timezone).date;
+  const sorted = [...list].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+  return (sorted.find((t) => t.start <= today(t) && today(t) <= t.end) || sorted.find((t) => t.start > today(t)) || sorted[0])?.id || null;
+}
+function setTrip(id) {
+  tripId = id;
+  state.routes = tstore.get('routes.v1', {}); state.done = tstore.get('done.v1', {}); state.shift = tstore.get('shift.v1', {});
+}
+let freshIndex = null; // the index request still running behind a choice made from the saved index
+async function chooseTrip() { // true when a trip is chosen
+  if (tripId) return true;
+  const fresh = loadIndex();
+  let list = validTrips(store.get('trips.v1', null));
+  if (!list.length) list = cachedTrips(); // no saved index yet (first launch after the live app): the plans this phone has
+  const want = params.get('trip');
+  if (!list.length || (want && !list.some((t) => t.id === want))) list = (await fresh) || list; // nothing to go on: wait for the network
+  else freshIndex = fresh; // the phone knows its trips: open one now, never wait on weak signal; followIndex() checks the fresh list
+  const id = list.length ? pickTrip(list) : null;
+  if (!id) return false;
+  setTrip(id);
+  return true;
+}
+// A fresh index can change the choice: a new trip under way, or the open trip removed. Switch then, unless the user
+// has moved around in the open trip, which still exists.
+async function followIndex() {
+  const fresh = freshIndex; freshIndex = null;
+  const list = fresh && (await fresh);
+  if (!list || !tripId) return;
+  const id = pickTrip(list), gone = !list.some((t) => t.id === tripId);
+  if (id && id !== tripId && (gone || !state.touched)) await switchTrip(id, gone);
+}
+// The trip on screen stays fully in charge (its ticks, shifts and storage) until the new trip's plan is in hand;
+// then id, state and plan change together, with no await in between.
+let switching = null;
+async function switchTrip(id, force) {
+  switching = id;
+  const fresh = await fetchItin(id);
+  if (switching !== id) return; // another switch started meanwhile
+  switching = null;
+  if (!force && state.touched) return; // the user started looking around while the plan loaded: leave them be
+  const itin = fresh || store.get(`trip:${id}:itin.v1`, null);
+  if (!itin?.days?.length) return; // the new trip cannot be shown: stay on the one on screen
+  const prev = { tripId, itin: state.itin, days: state.days, tz: state.tz, wx: state.wx, routes: state.routes, done: state.done, shift: state.shift };
+  setTrip(id); state.wx = null; adoptWx(tstore.get('wx.v1', null));
+  try { applyItin(itin); } catch (err) { // unusable plan: back to the trip on screen, untouched
+    console.error(err);
+    tripId = prev.tripId; Object.assign(state, { itin: prev.itin, days: prev.days, tz: prev.tz, wx: prev.wx, routes: prev.routes, done: prev.done, shift: prev.shift });
+    return;
+  }
+  if (fresh) tstore.set('itin.v1', fresh);
+  state.touched = false;
+  start(); refreshWeather(true); ensureRoutes();
+}
+
+/* ---------- state ---------- */
+const state = {
+  itin: null, days: [], tz: 'UTC', view: 'trip', sel: null, snap: 'half', wx: null, routes: {},
+  done: {}, shift: {}, lastWxTry: 0, me: null, optsOpen: false, touched: false, listTop: 0,
+};
+const plan = createPlan(() => state);
+const { buildDay, isFixed, shiftOf, eff, driveInfo, travelTo, leaveBy, dayTotals, tomorrowStart } = plan;
+const dayCtx = (day) => plan.dayCtx(day, now());
 function now() {
-  const o = params.get('now'); // ?now=2026-11-13T10:30 for testing
-  return o ? { date: o.slice(0, 10), min: toMin(o.slice(11, 16)) } : todayIn();
+  const o = params.get('now'); // ?now=2026-11-13T10:30 for testing, in the trip's local time
+  return o ? { date: o.slice(0, 10), min: toMin(o.slice(11, 16)) } : todayIn(state.tz);
 }
 
 /* ---------- itinerary → per-day model ---------- */
-const routeKey = (a, b) => `${a.lon.toFixed(5)},${a.lat.toFixed(5)};${b.lon.toFixed(5)},${b.lat.toFixed(5)}`;
-function buildDay(day, idx) {
-  const bases = state.itin.bases || {};
-  const stops = day.items.filter((i) => !i.mode);
-  const segs = [], driveTo = {};
-  let car = day.start ? bases[day.start] : null;
-  let me = car;
-  for (const s of stops) {
-    if (s.parking) {
-      if (car && dist(car, s.parking) > 40) {
-        const seg = { mode: 'drive', from: car, to: s.parking, key: routeKey(car, s.parking), stop: s.id };
-        segs.push(seg); driveTo[s.id] = seg;
-      }
-      car = s.parking;
-      if (s.walk.polyline || dist(s.parking, s) > 25) segs.push({ mode: 'walk', stop: s.id, pts: s.walk.polyline || [[s.parking.lat, s.parking.lon], [s.lat, s.lon]] });
-    } else if (me && dist(me, s) > 25) {
-      segs.push({ mode: 'walk', stop: s.id, pts: s.walk.polyline || [[me.lat, me.lon], [s.lat, s.lon]] });
-    }
-    me = s;
-    if (s.route) {
-      segs.push({ mode: s.route.mode, stop: s.id, pts: s.route.polyline });
-      const end = s.route.polyline[s.route.polyline.length - 1];
-      me = { lat: end[0], lon: end[1] };
-    }
-  }
-  const byId = Object.fromEntries(stops.map((s) => [s.id, s]));
-  for (const leg of day.items.filter((i) => i.mode)) {
-    const a = byId[leg.from], b = byId[leg.to];
-    if (!a || !b) continue;
-    if (leg.mode === 'drive') segs.push({ mode: 'drive', from: a.parking || a, to: b.parking || b, key: routeKey(a.parking || a, b.parking || b) });
-    else segs.push({ mode: leg.mode, pts: [[a.lat, a.lon], [b.lat, b.lon]] });
-  }
-  return { ...day, idx, color: DAY_COLORS[idx % DAY_COLORS.length], stops, segs, driveTo };
-}
-
-// Running-late shift: moves every stop of the day except fixed ones (bookings, flights).
-const isFixed = (s) => s.bookingNeeded || s.fixed === true || s.status === 'booked';
-const shiftOf = (day) => state.shift[day.date] || 0;
-const eff = (day, s) => toMin(s.time) + (isFixed(s) ? 0 : shiftOf(day));
-
-function driveInfo(seg) {
-  if (!seg) return null;
-  const r = state.routes[seg.key];
-  if (r) return { min: Math.max(1, Math.round(r.s / 60)), m: r.m, est: false };
-  const m = dist(seg.from, seg.to) * 1.45; // rough until the router answers
-  return { min: Math.max(1, Math.round(m / 1000 / 38 * 60)), m, est: true };
-}
-function travelTo(day, i) { // minutes needed between stop i-1 and stop i
-  const s = day.stops[i], p = day.stops[i - 1];
-  if (!s.parking) return { min: s.walk.minutes, est: false };
-  const d = driveInfo(day.driveTo[s.id]);
-  if (!d) return { min: s.walk.minutes + (p?.parking ? p.walk.minutes : 0), est: false }; // same car park: walk back, walk on
-  const back = p ? (p.returnMin ?? p.walk.minutes) : 0; // walk (or taxi) back to where the car is
-  return { min: d.min + s.walk.minutes + back, est: d.est };
-}
-function leaveBy(day, i) { // when to leave stop i (or the base, for i = -1) to reach stop i+1 on time
-  const n = day.stops[i + 1];
-  if (!n) return null;
-  const tr = travelTo(day, i + 1);
-  const by = eff(day, n) - tr.min - (n.arriveEarlyMin || 0);
-  if (i < 0) return tr.min >= 3 ? { by, tr, next: n, short: 0, clash: false } : null;
-  const s = day.stops[i];
-  return { by, tr, next: n, short: eff(day, s) + s.durationMin - by, clash: by < eff(day, s) && isFixed(n) && !isFixed(s) };
-}
-function dayTotals(day) {
-  let min = 0, m = 0, est = false, walk = 0;
-  for (const seg of day.segs.filter((s) => s.mode === 'drive')) { const d = driveInfo(seg); min += d.min; m += d.m; est = est || d.est; }
-  for (const s of day.stops) walk += (s.parking ? 2 : 1) * s.walk.km + (s.type === 'hike' ? parseFloat(((s.note || '').match(/([\d.]+)\s*km/) || [])[1] || 0) : 0);
-  return { min, m, est, walk };
-}
 
 /* ---------- weather ---------- */
 const wxAgeMin = () => (state.wx?.fetchedAt ? (Date.now() - state.wx.fetchedAt) / 60000 : Infinity);
@@ -131,22 +164,26 @@ function adoptWx(wx) {
     if (!Object.keys(wx.sea || {}).length && Object.keys(old.sea || {}).length) wx.sea = old.sea;
     for (const [k, W] of Object.entries(wx.loc)) if (!W.gLo && old.loc?.[k]?.gLo && old.loc[k].t.length === W.t.length && old.loc[k].t[0] === W.t[0]) { W.gLo = old.loc[k].gLo; W.gHi = old.loc[k].gHi; }
   }
-  state.wx = wx; store.set('wx.v1', wx); return true;
+  state.wx = wx; tstore.set('wx.v1', wx); return true;
 }
 let wxBusy = false;
 async function refreshWeather(force) {
   if (!state.itin || wxBusy) return;
   if (!force && Date.now() - state.lastWxTry < 60000) return;
   state.lastWxTry = Date.now(); wxBusy = true; paintAge();
+  const id = tripId;
   try {
-    if (adoptWx(await fetchWeather(state.itin, todayIn().date, fetch, state.wx))) render();
+    const wx = await fetchWeather(state.itin, todayIn(state.tz).date, fetch, state.wx);
+    if (tripId === id && adoptWx(wx)) render();
   } catch {
     try { // hourly snapshot published with the site
-      const r = await fetch(`weather.json?t=${Math.floor(Date.now() / 600000)}`, { signal: AbortSignal.timeout?.(8000) });
-      if (r.ok && adoptWx(await r.json())) render();
+      const r = await fetch(`weather/${id}.json?t=${Math.floor(Date.now() / 600000)}`, { signal: AbortSignal.timeout?.(8000) });
+      if (r.ok && tripId === id && adoptWx(await r.json())) render();
     } catch { /* offline: keep what we have */ }
   }
-  wxBusy = false; state.wxTried = true; if (!state.wx) renderList();
+  wxBusy = false; state.wxTried = true;
+  if (tripId !== id) return refreshWeather(true); // another trip was opened meanwhile: fetch its forecast
+  if (!state.wx) renderList();
   paintAge();
 }
 function ageText() {
@@ -238,7 +275,7 @@ async function ensureRoutes() {
           const step = Math.max(1, Math.ceil(rt.geometry.coordinates.length / 400)); // keep localStorage small
           const g = rt.geometry.coordinates.filter((_, i, a) => i % step === 0 || i === a.length - 1).map(([x, y]) => [+y.toFixed(5), +x.toFixed(5)]);
           state.routes[seg.key] = { s: rt.duration, m: rt.distance, g };
-          store.set('routes.v1', state.routes);
+          tstore.set('routes.v1', state.routes);
           if (state.view === 'trip' || state.view === day.idx) routeRedraw();
         }
       } catch { /* offline or rate-limited: straight line stays */ }
@@ -467,7 +504,7 @@ async function toggleRadar() {
     const f = j.radar.past[j.radar.past.length - 1];
     radarLayer = L.tileLayer(`${j.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`, { opacity: 0.6, maxNativeZoom: 7, maxZoom: 19, attribution: 'Radar © RainViewer' }).addTo(map);
     btn.setAttribute('aria-pressed', 'true');
-    toast(`Rain radar from ${hm(todayIn(undefined, new Date(f.time * 1000)).min)}`);
+    toast(`Rain radar from ${hm(todayIn(state.tz, new Date(f.time * 1000)).min)}`);
   } catch { toast('Rain radar is not reachable right now.'); }
   radarBusy = false;
 }
@@ -512,33 +549,24 @@ const WARN_ICON = { gust: 'wind', rain: 'drop', wave: 'wave', tide: 'wave', clou
 const warnShort = (w) => w.text.replace(/^(Gusts|Rain|Waves|Cloud) /, '').replace(' km/h', '').replace(/ at \d\d:00/, '').replace('Low tide is at ', 'low ');
 const warnChip = (w) => `${ico(WARN_ICON[w.kind] || 'warn')}<span class="sr">${esc(w.text)}</span><span aria-hidden="true">${esc(warnShort(w))}</span>`;
 
-function dayCtx(day) {
-  const t = now();
-  const ctx = { t, isToday: day.date === t.date, nowBefore: -1, nextId: null, curId: null };
-  if (ctx.isToday) {
-    // The itinerary order is the plan, even when a shifted stop now overlaps a booked one (that shows as a clash).
-    // Anything before the last ticked stop counts as passed.
-    const lastDone = day.stops.reduce((m, s, i) => (state.done[s.id] ? i : m), -1);
-    const open = day.stops.filter((s, i) => i > lastDone);
-    const ci = open.reduce((m, s, i) => (eff(day, s) <= t.min && t.min < eff(day, s) + Math.max(s.durationMin, 15) + 120 ? i : m), -1); // 2 h grace for an overrunning stop
-    const cur = ci >= 0 ? open[ci] : null;
-    const next = cur ? open[ci + 1] : open.find((s) => eff(day, s) > t.min);
-    ctx.curId = cur?.id || null; ctx.nextId = next?.id || null;
-    ctx.nowBefore = next ? day.stops.indexOf(next) : -1;
-    ctx.over = !next && (!cur || t.min >= eff(day, cur) + cur.durationMin);
-    ctx.passedBefore = cur ? day.stops.indexOf(cur) : next ? day.stops.indexOf(next) : lastDone + 1; // everything above this index is behind us
-  }
-  return ctx;
-}
 
+const nuCond = (f, tw = topWarn(f)) => (tw ? `<span class="hot">${ico('warnfill')}${warnChip(tw)}</span>`
+  : f ? `<span>${ico(wxOf(f.now.wc)[0], '', wxOf(f.now.wc)[1])}${r0(f.now.tc)}°</span>${f.span.wg >= LIMITS.gust ? `<span>${ico('wind', '', 'gusts')}${r0(f.span.wg)}</span>` : `<span>${ico('drop', '', 'rain')}${r0(f.span.pp)}%</span>`}` : '');
+function tomorrowUp(day) { // the day is over: tomorrow's first stop and when to leave; a tap opens that day
+  const tm = tomorrowStart(state.days, day.idx);
+  if (!tm) return '';
+  const at = eff(tm.day, tm.stop); // a first stop at the base: its time is the leave-by time, shown once
+  return `<section class="nextup" aria-label="Tomorrow">
+    <button class="nu-text" type="button" id="nu-open" data-view="${tm.day.idx}"><span class="nu-eyebrow"><span>Tomorrow</span>${at !== tm.by ? `<span>${hm(at)}</span>` : ''}<span class="nu-cond">${nuCond(fc(tm.day, tm.stop))}</span></span><b>${esc(tm.stop.name)}</b><span class="nu-sub"><span>Leave by <b>${hm(tm.by)}</b></span></span></button>
+  </section>`;
+}
 function nextUp(day, ctx) {
   if (!ctx.isToday) return '';
+  if (ctx.over) return tomorrowUp(day);
   const cur = day.stops.find((s) => s.id === ctx.curId), next = day.stops.find((s) => s.id === ctx.nextId);
-  if ((!cur && !next) || ctx.over) return '';
+  if (!cur && !next) return '';
   const target = next || cur;
-  const f = fc(day, target), tw = topWarn(f);
-  const cond = tw ? `<span class="hot">${ico('warnfill')}${warnChip(tw)}</span>`
-    : f ? `<span>${ico(wxOf(f.now.wc)[0], '', wxOf(f.now.wc)[1])}${r0(f.now.tc)}°</span>${f.span.wg >= LIMITS.gust ? `<span>${ico('wind', '', 'gusts')}${r0(f.span.wg)}</span>` : `<span>${ico('drop', '', 'rain')}${r0(f.span.pp)}%</span>`}` : '';
+  const cond = nuCond(fc(day, target));
   const then = day.stops[day.stops.indexOf(target) + 1];
   let line2;
   if (next) {
@@ -680,6 +708,23 @@ function renderTrip() {
 }
 
 let stripToNow = false;
+// Today opens scrolled to the row the traveller needs, below the sticky next-up block. Layout above the row can still
+// change after the first paint (forecast strip, fonts), so the position is redone until the traveller scrolls.
+let autoAlign = false;
+function alignToNow() {
+  const el = $('#list'), nu = el.querySelector('.nextup');
+  const r = el.querySelector('.earlier') || el.querySelector('.row.current') || el.querySelector('.row.next');
+  if (!r || !nu || state.snap === 'peek' || state.sel) return;
+  el.scrollTop = Math.max(0, el.scrollTop + r.getBoundingClientRect().top - el.getBoundingClientRect().top - nu.getBoundingClientRect().height - 14);
+}
+// The next-up block can change height after it is drawn (the hand-lettered face arrives, text wraps); follow it.
+const nuWatch = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { if (autoAlign) alignToNow(); }) : null;
+function watchNextUp() {
+  const nu = $('#list').querySelector('.nextup');
+  if (!nuWatch) return;
+  nuWatch.disconnect();
+  if (nu) nuWatch.observe(nu);
+}
 function renderList() {
   const el = $('#list'), top = el.scrollTop;
   const a = document.activeElement;
@@ -696,6 +741,7 @@ function renderList() {
     return;
   }
   el.scrollTop = top;
+  if (autoAlign) { alignToNow(); watchNextUp(); }
   const strip = el.querySelector('.strip');
   if (strip) {
     if (stripToNow) { const c = strip.querySelector('.cur'); if (c) strip.scrollLeft = Math.max(0, c.offsetLeft - strip.firstElementChild.offsetLeft - c.offsetWidth); if (state.wx) stripToNow = false; } else if (stripX) strip.scrollLeft = stripX;
@@ -711,8 +757,7 @@ function selectView(v) {
   $('#list').scrollTop = 0;
   render();
   if (state.snap === 'full') setSnap('half'); else setSnap(state.snap);
-  const el = $('#list'), r = el.querySelector('.earlier') || el.querySelector('.row.current') || el.querySelector('.row.next'), nu = el.querySelector('.nextup');
-  if (r && nu && state.snap !== 'peek') el.scrollTop = Math.max(0, r.getBoundingClientRect().top - el.getBoundingClientRect().top - nu.offsetHeight - 14); // today: start at the current stop
+  autoAlign = true; alignToNow(); watchNextUp();
   drawMap(true);
   document.title = v === 'trip' ? `${state.itin.trip} Trip` : `Day ${v + 1}, ${state.itin.trip} Trip`;
 }
@@ -761,7 +806,7 @@ function bind() {
     if (dn) {
       const id = dn.dataset.done;
       if (state.done[id]) delete state.done[id]; else state.done[id] = Date.now();
-      store.set('done.v1', state.done);
+      tstore.set('done.v1', state.done);
       renderTabs();
       return state.done[id] ? backToDay() : (renderList(), drawMap(false));
     }
@@ -770,7 +815,7 @@ function bind() {
       const d = +sh.dataset.shift;
       const val = d === 0 ? 0 : Math.max(-120, Math.min(240, shiftOf(day) + d));
       if (val) state.shift[day.date] = val; else delete state.shift[day.date];
-      store.set('shift.v1', state.shift);
+      tstore.set('shift.v1', state.shift);
       return render();
     }
     const sel = e.target.closest('[data-sel]');
@@ -782,13 +827,16 @@ function bind() {
   $('#btnLocate').addEventListener('click', () => locate(true));
   $('#btnRadar').addEventListener('click', toggleRadar);
   bindSheet();
+  for (const ev of ['pointerdown', 'wheel', 'keydown']) $('#list').addEventListener(ev, () => { autoAlign = false; }, { passive: true });
+  document.fonts?.ready.then(() => { if (autoAlign) alignToNow(); });
+  document.fonts?.addEventListener?.('loadingdone', () => { if (autoAlign) alignToNow(); });
 
   let hiddenAt = 0;
   const wake = async () => {
     if (document.hidden) { hiddenAt = Date.now(); stopWatch(); return; }
     if (geoWanted) startWatch();
     const away = hiddenAt ? Date.now() - hiddenAt : 0; hiddenAt = 0;
-    if (!state.itin) { if (!(await loadItin())) return; start(); refreshWeather(true); ensureRoutes(); return; }
+    if (!state.itin) { if (!(await chooseTrip()) || !(await loadItin())) return; start(); refreshWeather(true); ensureRoutes(); followIndex(); return; }
     const today = now().date;
     if (today !== lastDate) { // new day since the app was last looked at
       lastDate = today;
@@ -801,7 +849,7 @@ function bind() {
   };
   document.addEventListener('visibilitychange', wake);
   window.addEventListener('pageshow', (e) => { if (e.persisted) wake(); });
-  window.addEventListener('online', async () => { paintAge(); if (!state.itin) { if (!(await loadItin())) return; start(); } refreshWeather(true); ensureRoutes(); });
+  window.addEventListener('online', async () => { paintAge(); if (!state.itin) { if (!(await chooseTrip()) || !(await loadItin())) return; start(); followIndex(); } refreshWeather(true); ensureRoutes(); });
   window.addEventListener('offline', paintAge);
   setInterval(() => { if (!document.hidden) refreshWeather(true); }, 15 * 60 * 1000);
   setInterval(() => { if (!document.hidden && state.itin) render(); else paintAge(); }, 60 * 1000);
@@ -814,23 +862,29 @@ function bind() {
 let lastDate = '';
 function applyItin(itin) {
   state.itin = itin;
+  state.tz = itin.timezone || 'UTC';
   state.days = itin.days.map(buildDay);
   for (const d of state.days) for (const st of d.stops) if (st.status === 'done' && !(st.id in state.done)) state.done[st.id] = 1; // done in the plan counts as ticked
   const keep = new Set(state.days.flatMap((d) => d.segs.filter((s) => s.key).map((s) => s.key)));
   for (const k of Object.keys(state.routes)) if (!keep.has(k)) delete state.routes[k]; // drop routes of an older plan
 }
-async function loadItin() { // true when a new or changed itinerary was applied
+async function fetchItin(id) { // a trip's plan from the server if the app can use it, else null
   try {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 8000);
-    const r = await fetch('data/itinerary.json', { signal: ctl.signal, cache: 'no-cache' });
+    const r = await fetch(`data/trips/${id}.json`, { signal: ctl.signal, cache: 'no-cache' });
     const itin = r.ok ? await r.json() : null;
     clearTimeout(timer);
-    if (!itin?.days?.length || itin.days.some((d) => !d.items?.some((i) => !i.mode))) return false;
-    if (state.itin && JSON.stringify(itin) === JSON.stringify(store.get('itin.v1', null))) return false;
-    applyItin(itin); store.set('itin.v1', itin); // store only what the app could digest
-    return true;
-  } catch { return false; }
+    return itin?.days?.length && itin.days.every((d) => d.items?.some((i) => !i.mode)) ? itin : null;
+  } catch { return null; }
+}
+async function loadItin() { // true when a new or changed itinerary was applied
+  const id = tripId;
+  const itin = await fetchItin(id);
+  if (!itin || tripId !== id) return false; // nothing usable, or another trip was opened meanwhile
+  if (state.itin && JSON.stringify(itin) === JSON.stringify(tstore.get('itin.v1', null))) return false;
+  applyItin(itin); tstore.set('itin.v1', itin); // store only what the app could digest
+  return true;
 }
 function start() {
   lastDate = now().date;
@@ -845,11 +899,22 @@ async function reloadItin() { // pick up a changed plan without throwing the use
   if (!state.touched && !date) start(); else selectView(i >= 0 ? i : 'trip');
   ensureRoutes();
 }
+async function retryWithFreshIndex() { // the saved index named a trip this phone has no plan for and the server does not give
+  const fresh = freshIndex; freshIndex = null;
+  if (!fresh || !(await fresh)) return false; // the fresh list is saved by now
+  tripId = null;
+  if (!(await chooseTrip())) return false;
+  freshIndex = null; // just fetched
+  state.wx = null; adoptWx(tstore.get('wx.v1', null));
+  return loadItin();
+}
 async function boot() {
   initMap(); bind();
   if ('serviceWorker' in navigator && import.meta.env.PROD) navigator.serviceWorker.register('sw.js').catch(() => {});
-  const cached = store.get('itin.v1', null);
-  adoptWx(store.get('wx.v1', null));
+  migrateLegacy();
+  if (!(await chooseTrip())) { $('#list').innerHTML = '<p class="nowx">Could not load your trips. Check your connection; the app retries when you come back to it.</p>'; return; }
+  const cached = tstore.get('itin.v1', null);
+  adoptWx(tstore.get('wx.v1', null));
   let painted = false;
   if (cached?.days?.length) { // paint from the saved copy at once, refresh behind it
     try { applyItin(cached); start(); painted = true; } catch (err) {
@@ -857,11 +922,13 @@ async function boot() {
       try { state.wx = null; applyItin(cached); start(); painted = true; } catch (err2) { console.error(err2); state.itin = null; } // bad saved weather? go on without it
     }
   }
-  if (painted) loadItin().then((changed) => { if (!changed) return; if (!state.touched) start(); else { const d = state.view === 'trip' ? -1 : Math.min(state.view, state.days.length - 1); selectView(d < 0 ? 'trip' : d); } ensureRoutes(); });
-  else if (await loadItin()) { try { start(); } catch (err) { console.error(err); state.wx = null; start(); } }
-  else { $('#list').innerHTML = '<p class="nowx">Could not load the itinerary. Check your connection; the app retries when you come back to it.</p>'; return; }
+  if (painted) {
+    loadItin().then((changed) => { if (!changed) return; if (!state.touched) start(); else { const d = state.view === 'trip' ? -1 : Math.min(state.view, state.days.length - 1); selectView(d < 0 ? 'trip' : d); } ensureRoutes(); });
+    followIndex();
+  } else if (await loadItin() || await retryWithFreshIndex()) { try { start(); } catch (err) { console.error(err); state.wx = null; start(); } }
+  else { tripId = null; freshIndex = null; $('#list').innerHTML = '<p class="nowx">Could not load the itinerary. Check your connection; the app retries when you come back to it.</p>'; return; }
 
-  if (!state.wx) { try { const r = await fetch('weather.json', { signal: AbortSignal.timeout?.(8000) }); if (r.ok && adoptWx(await r.json())) render(); } catch { /* none */ } }
+  if (!state.wx) { const id = tripId; try { const r = await fetch(`weather/${id}.json`, { signal: AbortSignal.timeout?.(8000) }); if (r.ok && tripId === id && adoptWx(await r.json())) render(); } catch { /* none */ } } // a late answer for a trip no longer open is dropped
   refreshWeather(true);
   ensureRoutes();
   if (store.get('geo', false)) { // resume live location only if it is already allowed, so launch never prompts
