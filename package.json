@@ -10,7 +10,8 @@
     "dev": "node scripts/validate.mjs && vite",
     "build": "node scripts/validate.mjs && node scripts/fetch-weather.mjs && vite build && node scripts/postbuild.mjs",
     "preview": "vite preview",
-    "test": "playwright test"
+    "test:unit": "node --test \"tests/unit/*.test.js\"",
+    "test": "npm run test:unit && playwright test"
   },
   "devDependencies": {
     "vite": "^6.0.0",
