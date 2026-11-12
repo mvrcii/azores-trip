@@ -16,10 +16,12 @@ test.beforeEach(async ({ page }) => {
   await page.route(/^https?:\/\/(?!localhost)/, (route) => route.abort());
   page.on('pageerror', (e) => { throw e; });
   await page.route('**/data/trips/index.json', async (route) => {
-    const res = await route.fetch();
-    const index = await res.json();
-    index.trips.push({ id: 'test-tokyo', name: tokyo.trip, subtitle: tokyo.subtitle, start: tokyo.days[0].date, end: tokyo.days[tokyo.days.length - 1].date, timezone: tokyo.timezone });
-    await route.fulfill({ response: res, json: index });
+    try {
+      const res = await route.fetch();
+      const index = await res.json();
+      index.trips.push({ id: 'test-tokyo', name: tokyo.trip, subtitle: tokyo.subtitle, start: tokyo.days[0].date, end: tokyo.days[tokyo.days.length - 1].date, timezone: tokyo.timezone });
+      await route.fulfill({ response: res, json: index });
+    } catch { /* the page navigated away while the index was still on its way (the app fetches it in the background) */ }
   });
   await page.route('**/data/trips/test-tokyo.json', (route) => route.fulfill({ path: FIXTURE, contentType: 'application/json' }));
 });
@@ -126,11 +128,59 @@ test('a fresh index does not move someone who is looking around the open trip', 
   await page.route('**/data/trips/index.json', async (route) => { await gate; await route.fallback(); });
   await page.goto('/');
   await page.locator('#tabs button').nth(2).click(); // the user picks a day
+  const answered = page.waitForResponse('**/data/trips/index.json'); // listen before the answer can come
   release();
-  await page.waitForResponse('**/data/trips/index.json');
+  await answered;
   await page.waitForTimeout(300);
   await expect(page.locator('.head h2')).not.toHaveText('Old Tokyo on foot');
   await expect(page.locator('#tabs button').nth(2)).toHaveAttribute('aria-current', 'page');
+});
+
+const smOnlyIndex = (page) => page.evaluate((sm) => localStorage.setItem('trips.v1', JSON.stringify([{ id: sm, name: 'São Miguel', start: '2026-11-12', end: '2026-11-18', timezone: 'Atlantic/Azores' }])), SM);
+
+test('a tick made while another trip loads stays with the trip on screen', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-12-01T02:30:00Z')); // during the Tokyo trip
+  await page.goto('/?trip=sao-miguel-2026');
+  await expect(page.locator('.head h2')).toHaveText('São Miguel');
+  await smOnlyIndex(page);
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  await page.route('**/data/trips/test-tokyo.json', async (route) => { await gate; await route.fallback(); }); // Tokyo's plan is slow
+  const asked = page.waitForRequest('**/data/trips/test-tokyo.json');
+  await page.goto('/');
+  await asked; // the fresh index chose Tokyo and its plan is on the way
+  await page.locator('#tabs button').nth(2).click();
+  await page.locator('#row-fri-boca').click();
+  await page.locator('#done-btn').click();
+  const answered = page.waitForResponse('**/data/trips/test-tokyo.json'); // listen before the answer can come
+  release();
+  await answered;
+  await page.waitForTimeout(300);
+  const ls = await storage(page);
+  expect(JSON.parse(ls[`trip:${SM}:done.v1`])).toHaveProperty('fri-boca');
+  expect(ls['trip:test-tokyo:done.v1'] ?? '{}').not.toContain('fri-boca');
+  await expect(page.locator('#row-fri-boca')).toHaveClass(/done/); // still São Miguel: the user was looking around
+});
+
+test('a forecast that arrives after the trip changed is not kept for the new trip', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-12-01T02:30:00Z'));
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const series = { t: ['2026-12-01T11:00'], pp: [0], pr: [0], tc: [10], at: [9], ws: [5], wg: [9], cc: [0], wc: [0], sun: { d: ['2026-12-01'], rise: ['2026-12-01T07:30'], set: ['2026-12-01T17:30'] } };
+  // São Miguel's forecast answers only when released, from the first visit on, so no forecast is ever saved for it
+  await page.route(/\/weather\/sao-miguel-2026\.json/, async (route) => { await gate; await route.fulfill({ json: { fetchedAt: Date.now(), loc: { '37.74,-25.67': series }, sea: {} } }).catch(() => {}); });
+  await page.goto('/?trip=sao-miguel-2026');
+  await expect(page.locator('.head h2')).toHaveText('São Miguel');
+  await smOnlyIndex(page);
+  const asked = page.waitForRequest(/\/weather\/sao-miguel-2026\.json/);
+  await page.goto('/');
+  await asked; // the start asked for São Miguel's forecast
+  await expect(page.locator('.head h2')).toHaveText('Old Tokyo on foot'); // and switched to Tokyo while it was pending
+  const answered = page.waitForResponse(/\/weather\/sao-miguel-2026\.json/); // listen before the answer can come
+  release();
+  await answered;
+  await page.waitForTimeout(300);
+  expect((await storage(page))['trip:test-tokyo:wx.v1']).toBeUndefined();
 });
 
 test('the validator names the file and the problem', () => {

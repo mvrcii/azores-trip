@@ -114,20 +114,27 @@ async function followIndex() {
   const list = fresh && (await fresh);
   if (!list || !tripId) return;
   const id = pickTrip(list), gone = !list.some((t) => t.id === tripId);
-  if (id && id !== tripId && (gone || !state.touched)) await switchTrip(id);
+  if (id && id !== tripId && (gone || !state.touched)) await switchTrip(id, gone);
 }
-async function switchTrip(id) {
-  const prev = { tripId, itin: state.itin, days: state.days, wx: state.wx, routes: state.routes, done: state.done, shift: state.shift };
-  setTrip(id); state.itin = null; state.wx = null;
-  adoptWx(tstore.get('wx.v1', null));
-  const cached = tstore.get('itin.v1', null);
-  if (cached?.days?.length) { try { applyItin(cached); } catch (err) { console.error(err); state.itin = null; } }
-  await loadItin();
-  if (tripId !== id) return; // switched again meanwhile
-  if (!state.itin) { // the new trip cannot be loaded: stay on the one on screen
-    tripId = prev.tripId; Object.assign(state, { itin: prev.itin, days: prev.days, wx: prev.wx, routes: prev.routes, done: prev.done, shift: prev.shift });
+// The trip on screen stays fully in charge (its ticks, shifts and storage) until the new trip's plan is in hand;
+// then id, state and plan change together, with no await in between.
+let switching = null;
+async function switchTrip(id, force) {
+  switching = id;
+  const fresh = await fetchItin(id);
+  if (switching !== id) return; // another switch started meanwhile
+  switching = null;
+  if (!force && state.touched) return; // the user started looking around while the plan loaded: leave them be
+  const itin = fresh || store.get(`trip:${id}:itin.v1`, null);
+  if (!itin?.days?.length) return; // the new trip cannot be shown: stay on the one on screen
+  const prev = { tripId, itin: state.itin, days: state.days, tz: state.tz, wx: state.wx, routes: state.routes, done: state.done, shift: state.shift };
+  setTrip(id); state.wx = null; adoptWx(tstore.get('wx.v1', null));
+  try { applyItin(itin); } catch (err) { // unusable plan: back to the trip on screen, untouched
+    console.error(err);
+    tripId = prev.tripId; Object.assign(state, { itin: prev.itin, days: prev.days, tz: prev.tz, wx: prev.wx, routes: prev.routes, done: prev.done, shift: prev.shift });
     return;
   }
+  if (fresh) tstore.set('itin.v1', fresh);
   state.touched = false;
   start(); refreshWeather(true); ensureRoutes();
 }
@@ -919,20 +926,23 @@ function applyItin(itin) {
   const keep = new Set(state.days.flatMap((d) => d.segs.filter((s) => s.key).map((s) => s.key)));
   for (const k of Object.keys(state.routes)) if (!keep.has(k)) delete state.routes[k]; // drop routes of an older plan
 }
-async function loadItin() { // true when a new or changed itinerary was applied
-  const id = tripId;
+async function fetchItin(id) { // a trip's plan from the server if the app can use it, else null
   try {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 8000);
     const r = await fetch(`data/trips/${id}.json`, { signal: ctl.signal, cache: 'no-cache' });
     const itin = r.ok ? await r.json() : null;
     clearTimeout(timer);
-    if (tripId !== id) return false; // another trip was opened meanwhile
-    if (!itin?.days?.length || itin.days.some((d) => !d.items?.some((i) => !i.mode))) return false;
-    if (state.itin && JSON.stringify(itin) === JSON.stringify(tstore.get('itin.v1', null))) return false;
-    applyItin(itin); tstore.set('itin.v1', itin); // store only what the app could digest
-    return true;
-  } catch { return false; }
+    return itin?.days?.length && itin.days.every((d) => d.items?.some((i) => !i.mode)) ? itin : null;
+  } catch { return null; }
+}
+async function loadItin() { // true when a new or changed itinerary was applied
+  const id = tripId;
+  const itin = await fetchItin(id);
+  if (!itin || tripId !== id) return false; // nothing usable, or another trip was opened meanwhile
+  if (state.itin && JSON.stringify(itin) === JSON.stringify(tstore.get('itin.v1', null))) return false;
+  applyItin(itin); tstore.set('itin.v1', itin); // store only what the app could digest
+  return true;
 }
 function start() {
   lastDate = now().date;
@@ -976,7 +986,7 @@ async function boot() {
   } else if (await loadItin() || await retryWithFreshIndex()) { try { start(); } catch (err) { console.error(err); state.wx = null; start(); } }
   else { tripId = null; freshIndex = null; $('#list').innerHTML = '<p class="nowx">Could not load the itinerary. Check your connection; the app retries when you come back to it.</p>'; return; }
 
-  if (!state.wx) { try { const r = await fetch(`weather/${tripId}.json`, { signal: AbortSignal.timeout?.(8000) }); if (r.ok && adoptWx(await r.json())) render(); } catch { /* none */ } }
+  if (!state.wx) { const id = tripId; try { const r = await fetch(`weather/${id}.json`, { signal: AbortSignal.timeout?.(8000) }); if (r.ok && tripId === id && adoptWx(await r.json())) render(); } catch { /* none */ } } // a late answer for a trip no longer open is dropped
   refreshWeather(true);
   ensureRoutes();
   if (store.get('geo', false)) { // resume live location only if it is already allowed, so launch never prompts
