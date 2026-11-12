@@ -1,5 +1,6 @@
 // Smoke tests: the flows a traveller depends on. External services are blocked so runs are deterministic;
 // the app must work from its own files (itinerary + bundled forecast snapshot) alone.
+import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({ page }) => {
@@ -25,8 +26,32 @@ test('today shows what is next and when to leave', async ({ page }) => {
   await expect(page.locator('.nowline')).toHaveCount(1);
 });
 
-test('no next-up block once the day is over', async ({ page }) => {
+test('once the day is over, the next-up block shows tomorrow and opens it', async ({ page }) => {
   await page.goto('/?now=2026-11-13T23:00');
+  const next = page.locator('.nextup');
+  await expect(next).toContainText('Tomorrow');
+  await expect(next).toContainText('Check out, luggage in car'); // first stop of Sat 14 Nov
+  await expect(next).toContainText(/Leave by \d\d:\d\d/);
+  await expect(next.locator('#nu-go')).toHaveCount(0);
+  await next.locator('#nu-open').click();
+  await expect(page.locator('#tabs [aria-current="page"]')).toHaveAttribute('data-view', '2');
+  await expect(page.locator('#row-sat-checkout')).toBeVisible();
+  await expect(page.locator('.nextup')).toHaveCount(0); // not today: no block
+});
+
+test('tomorrow block after every stop is ticked done in the afternoon', async ({ page }) => {
+  await page.goto('/?now=2026-11-13T15:00');
+  await expect(page.locator('.nextup')).not.toContainText('Tomorrow');
+  const day2 = JSON.parse(readFileSync(new URL('../../data/trips/sao-miguel-2026.json', import.meta.url))).days[1];
+  const done = Object.fromEntries(day2.items.filter((i) => !i.mode).map((s) => [s.id, 1]));
+  await page.evaluate((d) => localStorage.setItem('trip:sao-miguel-2026:done.v1', JSON.stringify(d)), done);
+  await page.reload();
+  await expect(page.locator('.nextup')).toContainText('Tomorrow');
+  await expect(page.locator('.nextup')).toContainText('Check out, luggage in car');
+});
+
+test('no next-up block after the last day of the trip', async ({ page }) => {
+  await page.goto('/?now=2026-11-18T23:30');
   await expect(page.locator('.row, .earlier').first()).toBeVisible();
   await expect(page.locator('.nextup')).toHaveCount(0);
 });

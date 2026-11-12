@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { toMin, hm, dur, dist, routeKey, createPlan } from '../../src/plan.js';
+import { toMin, hm, dur, dist, routeKey, nextDate, createPlan } from '../../src/plan.js';
 
 const base = { lat: 37.8, lon: -25.5 };
 const far = { lat: 37.8, lon: -25.4 }; // about 8.8 km east
@@ -166,4 +166,35 @@ test('shifted day moves now/next with it', () => {
   state.shift['2026-11-13'] = 60;
   const c = plan.dayCtx(day, today(9 * 60 + 30)); // a now starts at 10:00
   assert.equal(c.curId, null); assert.equal(c.nextId, 'a');
+});
+
+test('tomorrow: first stop and leave-by from the base once today is over', () => {
+  const state = { itin: { bases: { b: base } }, routes: {}, shift: {}, done: { a: true, b: true, c: true } };
+  const plan = createPlan(() => state);
+  const mkDays = (dates, items) => dates.map((date, i) => plan.buildDay({ date, start: 'b', items: items[i] }, i));
+  const days = mkDays(['2026-11-13', '2026-11-14'], [three(), [stop('t', '10:00', { parking: { ...far, name: 'P' } }), stop('u', '13:00')]]);
+  // all of today ticked done at 15:00: the day is over, tomorrow is next
+  assert.equal(plan.dayCtx(days[0], today(15 * 60)).over, true);
+  const tm = plan.tomorrowStart(days, 0);
+  assert.equal(tm.day, days[1]); assert.equal(tm.stop.id, 't');
+  assert.equal(tm.by, plan.leaveBy(days[1], -1).by);
+  assert.ok(tm.by < 600);
+  // a shift on tomorrow moves its leave-by
+  state.shift['2026-11-14'] = 30;
+  assert.equal(plan.tomorrowStart(days, 0).by, tm.by + 30);
+  delete state.shift['2026-11-14'];
+  // last day, and a gap in the dates: nothing
+  assert.equal(plan.tomorrowStart(days, 1), null);
+  assert.equal(plan.tomorrowStart(mkDays(['2026-11-13', '2026-11-15'], [three(), three()]), 0), null);
+  // tomorrow without stops: nothing
+  assert.equal(plan.tomorrowStart(mkDays(['2026-11-13', '2026-11-14'], [three(), []]), 0), null);
+  // a first stop at the base itself (check-out): leave at its own time
+  const atBase = mkDays(['2026-11-13', '2026-11-14'], [three(), [stop('co', '10:30', { ...base, parking: { ...base, name: 'Base' }, walk: { minutes: 0, km: 0 } })]]);
+  assert.equal(plan.tomorrowStart(atBase, 0).by, 630);
+});
+
+test('nextDate crosses month and year ends', () => {
+  assert.equal(nextDate('2026-11-30'), '2026-12-01');
+  assert.equal(nextDate('2026-12-31'), '2027-01-01');
+  assert.equal(nextDate('2028-02-28'), '2028-02-29');
 });

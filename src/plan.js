@@ -12,6 +12,7 @@ export function dist(a, b) {
 }
 export const DAY_COLORS = ['#9c6a00', '#1a7d79', '#8a4fb0', '#7a5a3a', '#a84a86', '#5468c4', '#227d4d', '#6b6f1f', '#4a7a9c']; // ≥ 4.5:1 with white; no reds (warnings) and no route blue
 
+export const nextDate = (d) => new Date(Date.parse(d + 'T12:00:00Z') + 864e5).toISOString().slice(0, 10);
 export const routeKey = (a, b) => `${a.lon.toFixed(5)},${a.lat.toFixed(5)};${b.lon.toFixed(5)},${b.lat.toFixed(5)}`;
 
 export function createPlan(getState) {
@@ -103,5 +104,13 @@ export function createPlan(getState) {
     }
     return ctx;
   }
-  return { buildDay, isFixed, shiftOf, eff, driveInfo, travelTo, leaveBy, dayTotals, dayCtx };
+  // Once today is over: tomorrow's first stop and when to leave the base for it. Null on the last day, when the
+  // next day in the plan is not the next calendar date, or when it has no stops.
+  function tomorrowStart(days, idx) {
+    const day = days[idx], tom = days[idx + 1];
+    if (!day || !tom?.stops.length || tom.date !== nextDate(day.date)) return null;
+    const stop = tom.stops[0], lv = leaveBy(tom, -1);
+    return { day: tom, stop, by: lv ? lv.by : eff(tom, stop), tr: lv?.tr || null }; // a first stop at the base: leave at its own time
+  }
+  return { buildDay, isFixed, shiftOf, eff, driveInfo, travelTo, leaveBy, dayTotals, dayCtx, tomorrowStart };
 }
