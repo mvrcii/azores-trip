@@ -5,7 +5,6 @@
 
 const HOURLY = 'precipitation_probability,precipitation,temperature_2m,apparent_temperature,wind_speed_10m,wind_gusts_10m,cloud_cover,weather_code';
 const MARINE = 'wave_height,wave_period,swell_wave_height,sea_level_height_msl';
-export const TZ = 'Atlantic/Azores';
 export const LIMITS = { rain: 60, gust: 45, wave: 2, gustSevere: 70 }; // gustSevere and sev 2 mark real trouble; the rest is a heads-up
 
 export const locKey = (p) => `${p.lat.toFixed(2)},${p.lon.toFixed(2)}`;
@@ -22,7 +21,7 @@ export function addDays(dateStr, n) {
   return d.toISOString().slice(0, 10);
 }
 
-export function todayIn(tz = TZ, now = new Date()) {
+export function todayIn(tz, now = new Date()) { // date and minute of the day in the trip's time zone
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
     timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   }).formatToParts(now).map((x) => [x.type, x.value]));
@@ -60,7 +59,7 @@ export async function fetchWeather(itin, today, fetchFn = fetch, prev = null) {
     if (needsSea(s)) sea.set(locKey(seaPoint(s)), seaPoint(s));
   }
   const q = (m) => `latitude=${[...m.values()].map((p) => p.lat).join(',')}&longitude=${[...m.values()].map((p) => p.lon).join(',')}`;
-  const common = `timezone=${encodeURIComponent(TZ)}&start_date=${w.start}&end_date=${w.end}`;
+  const common = `timezone=${encodeURIComponent(itin.timezone)}&start_date=${w.start}&end_date=${w.end}`;
 
   const lj = await getJson(`https://api.open-meteo.com/v1/forecast?${q(land)}&hourly=${HOURLY}&daily=sunrise,sunset&wind_speed_unit=kmh&${common}`, fetchFn);
   [...land.keys()].forEach((k, i) => {

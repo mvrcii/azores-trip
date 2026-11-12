@@ -7,8 +7,13 @@ const TILE_LIMIT = 1200;
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(SHELL).then((c) => c.addAll(Array.isArray(PRECACHE) ? PRECACHE : ['./']))
-    // keep a copy of the data files too, so a first offline launch has an itinerary and a forecast (best effort)
-    .then(() => caches.open(DATA).then((c) => Promise.all(['data/itinerary.json', 'weather.json'].map((f) => fetch(f, { cache: 'no-store' }).then((r) => (r.ok ? c.put(new URL(f, self.location).pathname, r) : null)).catch(() => null)))))
+    // keep a copy of the data files too, so a first offline launch has the trips and their forecasts (best effort)
+    .then(() => caches.open(DATA).then(async (c) => {
+      const keep = (f) => fetch(f, { cache: 'no-store' }).then((r) => (r.ok ? c.put(new URL(f, self.location).pathname, r.clone()).then(() => r) : null)).catch(() => null);
+      const idx = await keep('data/trips/index.json');
+      const trips = (await idx?.json().catch(() => null))?.trips || [];
+      await Promise.all(trips.flatMap((t) => [keep(`data/trips/${t.id}.json`), keep(`weather/${t.id}.json`)]));
+    }))
     .then(() => self.skipWaiting()));
 });
 
@@ -71,6 +76,6 @@ self.addEventListener('fetch', (e) => {
   if (url.origin !== self.location.origin) return; // weather, routing, radar: the app caches these itself
   if (url.pathname.startsWith(new URL('next/', self.registration.scope).pathname)) return; // the preview version runs its own worker
   if (req.mode === 'navigate') return e.respondWith(shell(req, './'));
-  if (/\/(data\/itinerary|weather)\.json$/.test(url.pathname)) return e.respondWith(networkFirst(req));
+  if (/\/(data\/trips|weather)\/[^/]+\.json$/.test(url.pathname)) return e.respondWith(networkFirst(req));
   e.respondWith(shell(req));
 });
