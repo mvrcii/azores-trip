@@ -143,7 +143,7 @@ const state = {
   done: {}, shift: {}, lastWxTry: 0, me: null, optsOpen: false, touched: false, listTop: 0,
 };
 const plan = createPlan(() => state);
-const { buildDay, isFixed, shiftOf, eff, driveInfo, travelTo, leaveBy, dayTotals } = plan;
+const { buildDay, isFixed, shiftOf, eff, driveInfo, travelTo, leaveBy, dayTotals, tomorrowStart } = plan;
 const dayCtx = (day) => plan.dayCtx(day, now());
 function now() {
   const o = params.get('now'); // ?now=2026-11-13T10:30 for testing, in the trip's local time
@@ -550,14 +550,23 @@ const warnShort = (w) => w.text.replace(/^(Gusts|Rain|Waves|Cloud) /, '').replac
 const warnChip = (w) => `${ico(WARN_ICON[w.kind] || 'warn')}<span class="sr">${esc(w.text)}</span><span aria-hidden="true">${esc(warnShort(w))}</span>`;
 
 
+const nuCond = (f, tw = topWarn(f)) => (tw ? `<span class="hot">${ico('warnfill')}${warnChip(tw)}</span>`
+  : f ? `<span>${ico(wxOf(f.now.wc)[0], '', wxOf(f.now.wc)[1])}${r0(f.now.tc)}°</span>${f.span.wg >= LIMITS.gust ? `<span>${ico('wind', '', 'gusts')}${r0(f.span.wg)}</span>` : `<span>${ico('drop', '', 'rain')}${r0(f.span.pp)}%</span>`}` : '');
+function tomorrowUp(day) { // the day is over: tomorrow's first stop and when to leave; a tap opens that day
+  const tm = tomorrowStart(state.days, day.idx);
+  if (!tm) return '';
+  const at = eff(tm.day, tm.stop); // a first stop at the base: its time is the leave-by time, shown once
+  return `<section class="nextup" aria-label="Tomorrow">
+    <button class="nu-text" type="button" id="nu-open" data-view="${tm.day.idx}"><span class="nu-eyebrow"><span>Tomorrow</span>${at !== tm.by ? `<span>${hm(at)}</span>` : ''}<span class="nu-cond">${nuCond(fc(tm.day, tm.stop))}</span></span><b>${esc(tm.stop.name)}</b><span class="nu-sub"><span>Leave by <b>${hm(tm.by)}</b></span></span></button>
+  </section>`;
+}
 function nextUp(day, ctx) {
   if (!ctx.isToday) return '';
+  if (ctx.over) return tomorrowUp(day);
   const cur = day.stops.find((s) => s.id === ctx.curId), next = day.stops.find((s) => s.id === ctx.nextId);
-  if ((!cur && !next) || ctx.over) return '';
+  if (!cur && !next) return '';
   const target = next || cur;
-  const f = fc(day, target), tw = topWarn(f);
-  const cond = tw ? `<span class="hot">${ico('warnfill')}${warnChip(tw)}</span>`
-    : f ? `<span>${ico(wxOf(f.now.wc)[0], '', wxOf(f.now.wc)[1])}${r0(f.now.tc)}°</span>${f.span.wg >= LIMITS.gust ? `<span>${ico('wind', '', 'gusts')}${r0(f.span.wg)}</span>` : `<span>${ico('drop', '', 'rain')}${r0(f.span.pp)}%</span>`}` : '';
+  const cond = nuCond(fc(day, target));
   const then = day.stops[day.stops.indexOf(target) + 1];
   let line2;
   if (next) {
