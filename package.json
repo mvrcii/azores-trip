@@ -6,6 +6,7 @@
   "scripts": {
     "validate": "node scripts/validate.mjs",
     "weather": "node scripts/fetch-weather.mjs",
+    "paths": "node scripts/bake-paths.mjs",
     "dev": "node scripts/validate.mjs && vite",
     "build": "node scripts/validate.mjs && node scripts/fetch-weather.mjs && vite build && node scripts/postbuild.mjs",
     "preview": "vite preview"

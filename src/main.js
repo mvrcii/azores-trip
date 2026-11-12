@@ -152,7 +152,7 @@ async function refreshWeather(force) {
 function ageText() {
   const a = wxAgeMin(), off = navigator.onLine === false;
   if (!isFinite(a)) return off ? 'offline' : 'loading';
-  return (off ? 'offline · ' : '') + (a < 1 ? 'just now' : a < 90 ? `${Math.round(a)} min ago` : `${Math.round(a / 60)} h ago`);
+  return (off ? 'offline, ' : '') + (a < 1 ? 'just now' : a < 90 ? `${Math.round(a)} min ago` : `${Math.round(a / 60)} h ago`);
 }
 function paintAge() {
   const a = wxAgeMin();
@@ -183,15 +183,15 @@ function dayHours(day) { // 07–21, each hour read at the stop you are at by th
   }
   return out;
 }
-function verdict(hours) { // one short line for the day
+function verdict(hours) { // the day at a glance, as icon + value pairs
   if (!hours.length) return '';
   const at = (h) => `${String(h).padStart(2, '0')}:00`;
   const wet = hours.reduce((a, b) => (b.pp > a.pp ? b : a)), gust = hours.reduce((a, b) => (b.wg > a.wg ? b : a));
   const wetHours = hours.filter((h) => h.pp >= LIMITS.rain).length;
-  const rain = wet.pp < 25 ? 'Dry' : wet.pp < LIMITS.rain ? `Showers around ${at(wet.h)}` : wetHours >= 8 ? 'Rain most of the day' : `Rain around ${at(wet.h)}`;
+  const rain = wet.pp < 25 ? `${ico('sun')}dry` : wet.pp < LIMITS.rain ? `${ico('drizzle')}showers ${at(wet.h)}` : wetHours >= 8 ? `${ico('rain')}rain all day` : `${ico('rain')}rain ${at(wet.h)}`;
   const g = Math.round(gust.wg);
-  const wind = g >= LIMITS.gustSevere ? `<span class="hot">storm gusts ${g}</span>` : g >= LIMITS.gust ? `gusts ${g}` : '';
-  return wind ? `${rain} · ${wind}` : rain; // plain words and numbers only, safe as HTML
+  const wind = g >= LIMITS.gust ? `<span${g >= LIMITS.gustSevere ? ' class="hot"' : ''}>${ico('wind')}<span class="sr">gusts </span>${g} km/h</span>` : '';
+  return `<span>${rain}</span>${wind}`;
 }
 const SEV_ORDER = ['wave', 'gust', 'rain'];
 const topWarn = (f) => { for (const k of SEV_ORDER) { const w = f?.warn.find((x) => x.sev >= 2 && x.kind === k); if (w) return w; } return null; };
@@ -321,16 +321,25 @@ function initMap() {
   map.on('preclick', () => { popupWasOpen = !!document.querySelector('.leaflet-popup'); });
   map.on('click', () => { if (!popupWasOpen && !WIDE.matches && state.snap !== 'peek') setSnap('peek'); }); // a tap that only closes a popup leaves the sheet alone
   $('#btnLocate').innerHTML = ico('locate'); $('#btnFit').innerHTML = ico('fit'); $('#btnRadar').innerHTML = ico('rain');
+  $('#btnZoomIn').innerHTML = ico('plus'); $('#btnZoomOut').innerHTML = ico('minus');
+  $('#btnZoomIn').addEventListener('click', () => map.zoomIn(1)); $('#btnZoomOut').addEventListener('click', () => map.zoomOut(1));
 }
 const pin = (cls, html, size = 30) => L.divIcon({ className: '', html: `<div class="pin ${cls}">${html}</div>`, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
-function line(pts, mode, color, dim) {
-  const st = MODE[mode] || MODE.drive;
+function line(pts, mode, color, dim, strong) {
+  const st = { ...(MODE[mode] || MODE.drive) };
+  if (strong) st.weight += 2;
   L.polyline(pts, { color: '#fffbf1', weight: st.weight + 3.5, opacity: dim ? 0.5 : 0.9, lineCap: 'round', interactive: false, className: 'casing' }).addTo(routeLayer);
   L.polyline(pts, { ...st, color: color || st.color, opacity: dim ? 0.35 : 1, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(routeLayer);
 }
 const mapsUrl = (p, walking) => `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}&travelmode=${walking ? 'walking' : 'driving'}`;
+function arrow(pts) { // a small direction arrow at the middle of a drive leg
+  const m = Math.floor(pts.length / 2), a = map.latLngToLayerPoint(pts[m - 1]), c = map.latLngToLayerPoint(pts[m + 1] || pts[m]);
+  const deg = Math.atan2(c.y - a.y, c.x - a.x) * 180 / Math.PI;
+  L.marker(pts[m], { interactive: false, keyboard: false, zIndexOffset: 50, icon: L.divIcon({ className: '', iconSize: [18, 18], iconAnchor: [9, 9], html: `<div class="arr" style="transform:rotate(${deg}deg)"><svg viewBox="0 0 18 18"><path d="M5 3.500L12 9l-7 5.500" fill="none" stroke="#fff" stroke-width="2.600" stroke-linecap="round" stroke-linejoin="round"/></svg></div>` }) }).addTo(pinLayer);
+}
 function drawDay(day, overview) {
   const b = [], modes = new Set();
+  const ctx = overview ? null : dayCtx(day);
   for (const seg of day.segs) {
     if (overview && seg.mode === 'walk') continue;
     modes.add(seg.mode);
@@ -340,9 +349,12 @@ function drawDay(day, overview) {
       pts = r ? r.g : [[seg.from.lat, seg.from.lon], [seg.to.lat, seg.to.lon]];
       faint = !r;
     }
-    const dim = !overview && state.sel && seg.stop !== state.sel; // with a stop open, its own legs stand out
+    const si = seg.stop ? day.stops.findIndex((x) => x.id === seg.stop) : -1;
+    const isNext = !overview && !state.sel && ctx && seg.stop && seg.stop === (ctx.nextId || ctx.curId);
+    const dim = !overview && (state.sel ? seg.stop !== state.sel : !!(ctx && ctx.isToday && si >= 0 && si < (ctx.passedBefore ?? 0))); // a selected stop's legs, or what is still ahead today, stand out
     if (faint) L.polyline(pts, { color: MODE.drive.color, weight: 3, opacity: dim ? 0.25 : 0.5, dashArray: '2 7', interactive: false }).addTo(routeLayer);
-    else line(pts, seg.mode, overview && seg.mode === 'drive' ? day.color : null, dim);
+    else line(pts, seg.mode, overview && seg.mode === 'drive' ? day.color : null, dim, isNext);
+    if (!overview && seg.mode === 'drive' && !faint && pts.length > 3 && !dim) arrow(pts);
     b.push(...pts);
   }
   if (overview) {
@@ -358,7 +370,7 @@ function drawDay(day, overview) {
       const near = map.latLngToLayerPoint([s.parking.lat, s.parking.lon]).distanceTo(map.latLngToLayerPoint([s.lat, s.lon])) < 36; // P would sit under the stop pin at this zoom: draw it beside it
       const icon = L.divIcon({ className: '', html: '<div class="pin ppin">P</div>', iconSize: [26, 26], iconAnchor: near ? [44, 13] : [13, 13], popupAnchor: near ? [-31, -10] : [0, -10] });
       L.marker(near ? [s.lat, s.lon] : [s.parking.lat, s.parking.lon], { icon, zIndexOffset: 100, title: `Parking: ${s.parking.name}`, alt: 'Parking' }).addTo(pinLayer)
-        .bindPopup(`<b>${esc(s.parking.name)}</b><br>${s.parking.free ? 'Free' : 'Paid'}${s.parking.note ? ' · ' + esc(s.parking.note) : ''}<br><a href="${mapsUrl(s.parking)}" target="_blank" rel="noopener">Drive here · Google Maps</a>`,
+        .bindPopup(`<b>${esc(s.parking.name)}</b><br>${s.parking.free ? 'Free' : 'Paid'}${s.parking.note ? '. ' + esc(s.parking.note) : ''}<br><a href="${mapsUrl(s.parking)}" target="_blank" rel="noopener">Drive here with Google Maps</a>`,
           { maxWidth: Math.max(160, Math.min(300, innerWidth - 12 - 64 - 34)), autoPanPaddingTopLeft: [12, topPx() + 44], autoPanPaddingBottomRight: [64, Math.min($('#sheet').offsetHeight, innerHeight * 0.62) + 12] });
     });
     day.stops.forEach((s, i) => {
@@ -455,7 +467,7 @@ async function toggleRadar() {
     const f = j.radar.past[j.radar.past.length - 1];
     radarLayer = L.tileLayer(`${j.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`, { opacity: 0.6, maxNativeZoom: 7, maxZoom: 19, attribution: 'Radar © RainViewer' }).addTo(map);
     btn.setAttribute('aria-pressed', 'true');
-    toast(`Rain radar, ${hm(todayIn(undefined, new Date(f.time * 1000)).min)}. Coverage around the Azores is limited.`);
+    toast(`Rain radar from ${hm(todayIn(undefined, new Date(f.time * 1000)).min)}`);
   } catch { toast('Rain radar is not reachable right now.'); }
   radarBusy = false;
 }
@@ -489,13 +501,16 @@ function hourStrip(day, hours) {
       <span class="h">${hh}</span><span class="ic">${ico(ic)}</span><span class="t">${Math.round(x.tc)}°</span>
       ${anyRain ? `<span class="pp${x.pp < 20 ? ' dry' : ''}">${Math.round(x.pp)}%</span>` : ''}${anyGust ? `<span class="g${x.wg >= LIMITS.gustSevere ? ' sev' : ''}">${x.wg >= LIMITS.gust ? Math.round(x.wg) : ''}</span>` : ''}</div>`;
   });
-  return `<div class="stripwrap wxd"><p class="cap">Hour by hour${anyRain ? ' · chance of rain' : ''}${anyGust ? ' · gusts in km/h' : ''}</p><div class="strip" id="strip" role="list" aria-label="Hourly forecast, 7 to 21 o'clock" tabindex="0">${cells.join('')}</div></div>`;
+  return `<div class="stripwrap wxd"><p class="cap"><span>Hour by hour</span>${anyRain ? `<span class="rainkey">${ico('drop')} rain</span>` : ''}${anyGust ? `<span>${ico('wind')} gusts km/h</span>` : ''}</p><div class="strip" id="strip" role="list" aria-label="Hourly forecast, 7 to 21 o'clock" tabindex="0">${cells.join('')}</div></div>`;
 }
 
 function navBtn(p, walking, id, text, label = '', cls = '') { // https Maps URL: opens the Google Maps app when installed, the web otherwise
   return `<a class="btn ${cls}" id="${id}" href="${mapsUrl(p, walking)}" target="_blank" rel="noopener"${label ? ` aria-label="${esc(label)}"` : ''}>${ico('arrow')}${text}</a>`;
 }
-const shortWarn = (w) => w.text.replace(' km/h', '').replace(/ at \d\d:00/, '').replace('is at ', '').toLowerCase();
+// A warning as icon + value, e.g. wind 117, drop 92%, wave 2.3 m.
+const WARN_ICON = { gust: 'wind', rain: 'drop', wave: 'wave', tide: 'wave', cloud: 'cloud' };
+const warnShort = (w) => w.text.replace(/^(Gusts|Rain|Waves|Cloud) /, '').replace(' km/h', '').replace(/ at \d\d:00/, '').replace('Low tide is at ', 'low ');
+const warnChip = (w) => `${ico(WARN_ICON[w.kind] || 'warn')}<span class="sr">${esc(w.text)}</span><span aria-hidden="true">${esc(warnShort(w))}</span>`;
 
 function dayCtx(day) {
   const t = now();
@@ -522,17 +537,20 @@ function nextUp(day, ctx) {
   if ((!cur && !next) || ctx.over) return '';
   const target = next || cur;
   const f = fc(day, target), tw = topWarn(f);
-  const cond = tw ? `<span class="hot">${ico('warnfill')} ${esc(shortWarn(tw))}</span>` : f ? `${r0(f.now.tc)}° · ${f.span.wg >= LIMITS.gust ? `gusts ${r0(f.span.wg)}` : `rain ${r0(f.span.pp)}%`}` : '';
+  const cond = tw ? `<span class="hot">${ico('warnfill')}${warnChip(tw)}</span>`
+    : f ? `<span>${ico(wxOf(f.now.wc)[0], '', wxOf(f.now.wc)[1])}${r0(f.now.tc)}°</span>${f.span.wg >= LIMITS.gust ? `<span>${ico('wind', '', 'gusts')}${r0(f.span.wg)}</span>` : `<span>${ico('drop', '', 'rain')}${r0(f.span.pp)}%</span>`}` : '';
+  const then = day.stops[day.stops.indexOf(target) + 1];
   let line2;
   if (next) {
-    const lv = leaveBy(day, day.stops.indexOf(next) - 1);
+    const ni = day.stops.indexOf(next);
+    const lv = leaveBy(day, ni - 1);
     if (lv && lv.tr.min >= 3) {
       const inMin = lv.by - ctx.t.min;
-      line2 = inMin > 0 ? `Leave in <b>${dur(inMin)}</b> · by ${hm(lv.by)}` : `<b class="hot">Leave now</b> · ${dur(-inMin)} late`;
-    } else line2 = `Starts in <b>${dur(Math.max(0, eff(day, next) - ctx.t.min))}</b>`;
-  } else line2 = `Until about ${hm(eff(day, cur) + cur.durationMin)}`;
+      line2 = inMin > 0 ? `<span>Leave in <b>${dur(inMin)}</b></span><span class="dim">by ${hm(lv.by)}</span>` : `<b class="hot">Leave now</b><span class="dim">${dur(-inMin)} late</span>`;
+    } else line2 = `<span>Starts in <b>${dur(Math.max(0, eff(day, next) - ctx.t.min))}</b></span>`;
+  } else line2 = `<span>Until about ${hm(eff(day, cur) + cur.durationMin)}</span>`;
   return `<section class="nextup" aria-label="${next ? 'Next up' : 'Now'}">
-    <button class="nu-text" type="button" id="nu-open" data-sel="${target.id}"><span class="nu-eyebrow">${next ? 'Next' : 'Now'} · ${hm(eff(day, target))}${cond ? ` · ${cond}` : ''}</span><b>${esc(target.name)}</b><span class="nu-sub">${line2}</span></button>
+    <button class="nu-text" type="button" id="nu-open" data-sel="${target.id}"><span class="nu-eyebrow"><span>${next ? 'Next' : 'Now'}</span><span>${hm(eff(day, target))}</span><span class="nu-cond">${cond}</span></span><b>${esc(target.name)}</b><span class="nu-sub">${line2}</span>${then ? `<span class="nu-then">then ${hm(eff(day, then))} ${esc(then.name)}</span>` : ''}</button>
     ${navBtn(target.parking || target, !target.parking, 'nu-go', 'Go', `Go to ${target.parking ? target.parking.name : target.name} with Google Maps`)}
   </section>`;
 }
@@ -546,12 +564,12 @@ function row(day, i, ctx) {
   const past = ctx.isToday && ctx.curId !== s.id && (t + s.durationMin < ctx.t.min || i < (ctx.passedBefore ?? 0));
   let html = '';
   if (ctx.nowBefore === i) html += `<li class="nowline"><span>Now ${hm(ctx.t.min)}</span></li>`;
-  if (d) html += `<li class="leg${past ? ' past' : ''}">${d.est ? '~' : ''}${d.min} min drive${i === 0 ? ` · leave by <b>${hm(t - d.min - s.walk.minutes)}</b>` : ''}</li>`;
+  if (d) html += `<li class="leg${past ? ' past' : ''}"><span>${ico('logistics')}<span class="sr">Drive </span>${d.est ? '~' : ''}${d.min} min</span>${i === 0 ? `<span>leave by <b>${hm(t - d.min - s.walk.minutes)}</b></span>` : ''}</li>`;
   const sev = topWarn(f), note = sev || f?.warn.find((w) => w.kind !== 'cloud' || s.type === 'view');
-  const mini = f ? `<span class="mini wxd${sev ? ' sev' : ''}"><span>${ico(wxOf(f.now.wc)[0], '', wxOf(f.now.wc)[1])} ${r0(f.now.tc)}°</span><small>${sev ? ico('warnfill') : ''}${note ? esc(shortWarn(note)) : f.span.pp >= 20 ? `rain ${r0(f.span.pp)}%` : ''}</small></span>` : '';
+  const mini = f ? `<span class="mini wxd${sev ? ' sev' : ''}"><span>${ico(wxOf(f.now.wc)[0], '', wxOf(f.now.wc)[1])} ${r0(f.now.tc)}°</span><small>${sev ? ico('warnfill') : ''}${note ? warnChip(note) : f.span.pp >= 20 ? `${ico('drop', '', 'rain')}${r0(f.span.pp)}%` : ''}</small></span>` : '';
   const tag = ctx.curId === s.id && !ctx.over ? '<span class="tag now">Now</span>' : ctx.nextId === s.id ? '<span class="tag nextb">Next</span>' : '';
   const lvRow = leaveBy(day, i), clash = lvRow?.clash ? `<span class="hot">clashes with ${hm(eff(day, lvRow.next))}</span>` : '';
-  const kind = [TYPE[s.type] ?? s.type, s.durationMin ? dur(s.durationMin) : ''].filter(Boolean).join(' · ');
+  const kind = [TYPE[s.type] ?? s.type, s.durationMin ? dur(s.durationMin) : ''].filter(Boolean).map((x) => `<span>${x}</span>`).join('');
   html += `<li><button class="row${isDone ? ' done' : ''}${past && !isDone ? ' past' : ''}${ctx.nextId === s.id ? ' next' : ''}${ctx.curId === s.id && !ctx.over ? ' current' : ''}" type="button" id="row-${s.id}" data-sel="${s.id}" style="--day:${day.color}">
       <time${moved ? ' class="moved"' : ''}>${hm(t)}</time>
       <span class="num" aria-hidden="true">${isDone ? ico('check') : i + 1}</span>
@@ -565,18 +583,19 @@ function renderDay(day) {
   const sun = sunOf(day), hours = dayHours(day), tot = dayTotals(day), sh = shiftOf(day);
   const doneN = day.stops.filter((s) => state.done[s.id]).length;
   const v = verdict(hours);
+  const nPast = ctx.isToday ? (ctx.over ? 0 : ctx.passedBefore ?? 0) : 0, hidePast = nPast >= 2 && !state.showPast; // today: fold what is behind us
   return `${nextUp(day, ctx)}
     <div class="head"><div class="head-text"><h2>${esc(day.title)}</h2>
-      <p class="sub">${fmtDate(day.date, { weekday: 'short', day: 'numeric', month: 'short' })}${v ? ` · <span class="wxd">${v}</span>` : ''}${sh ? ` · plan ${sh > 0 ? '+' : '−'}${dur(Math.abs(sh))}` : ''}</p></div>${statusBtn()}</div>
-    <ol class="timeline" aria-label="Stops">${day.stops.map((_, i) => row(day, i, ctx)).join('')}${ctx.isToday && ctx.nowBefore === -1 && !ctx.over ? `<li class="nowline"><span>Now ${hm(ctx.t.min)}</span></li>` : ''}</ol>
+      <p class="sub"><span>${fmtDate(day.date, { weekday: 'short', day: 'numeric', month: 'short' })}</span>${v ? `<span class="wxd vd">${v}</span>` : ''}${sh ? `<span>plan ${sh > 0 ? '+' : '−'}${dur(Math.abs(sh))}</span>` : ''}</p></div>${statusBtn()}</div>
+    <ol class="timeline" aria-label="Stops">${hidePast ? `<li><button class="earlier" type="button" id="show-past" data-past>${ico('check')}<span>${nPast} earlier stops</span>${ico('chev')}</button></li>` : ''}${day.stops.map((_, i) => (hidePast && i < nPast ? '' : row(day, i, ctx))).join('')}${ctx.isToday && ctx.nowBefore === -1 && !ctx.over ? `<li class="nowline"><span>Now ${hm(ctx.t.min)}</span></li>` : ''}</ol>
     ${hourStrip(day, hours)}
     <details class="opts" id="opts"${state.optsOpen ? ' open' : ''}><summary id="opts-sum">Day details${ico('chev')}</summary><div class="opts-body">
       <ul class="facts">
-        <li>${day.base ? esc(state.itin.bases[day.base].label) : 'Base tonight: to be decided'}</li>
-        ${tot.min ? `<li>${tot.est ? 'About ' : ''}${dur(tot.min)} driving, ${km(tot.m)}</li>` : ''}
-        ${tot.walk >= 0.5 ? `<li>About ${tot.walk.toFixed(1)} km on foot</li>` : ''}
-        ${sun ? `<li class="wxd">Sunrise ${sun.rise}, sunset ${sun.set}</li>` : ''}
-        <li>${doneN} of ${day.stops.length} stops done</li>
+        <li>${ico('home')}${day.base ? esc(state.itin.bases[day.base].label) : 'Base tonight: to be decided'}</li>
+        ${tot.min ? `<li>${ico('logistics')}${tot.est ? 'About ' : ''}${dur(tot.min)} driving, ${km(tot.m)}</li>` : ''}
+        ${tot.walk >= 0.5 ? `<li>${ico('walk')}About ${tot.walk.toFixed(1)} km on foot</li>` : ''}
+        ${sun ? `<li class="wxd">${ico('sunrise')}${sun.rise}<span class="gap"></span>${ico('sunset')}${sun.set}<span class="sr"> sunrise and sunset</span></li>` : ''}
+        <li>${ico('check')}${doneN} of ${day.stops.length} stops done</li>
       </ul>
       <div class="tools" role="group" aria-label="Move the plan"><span class="lbl">${sh ? `Plan moved ${sh > 0 ? 'later' : 'earlier'} by ${dur(Math.abs(sh))}. Bookings and flights keep their time.` : 'Running late? Move all open stops.'}</span>
         <button type="button" id="shift-minus" data-shift="-15" aria-label="Move the plan 15 minutes earlier">−15 min</button><button type="button" id="shift-plus" data-shift="15" aria-label="Move the plan 15 minutes later">+15 min</button>${sh ? '<button type="button" id="shift-reset" data-shift="0">Reset</button>' : ''}</div>
@@ -584,8 +603,11 @@ function renderDay(day) {
     </div></details>`;
 }
 
+// One fact of a stop: icon, the value in large type, at most a few words beneath.
+function fact(icon, value, sub = '', cls = '', label = '') {
+  return `<div class="tile ${cls}"><span class="ti" aria-hidden="true">${icon}</span><span class="tv">${label ? `<span class="sr">${label}: </span>` : ''}<b>${value}</b>${sub ? `<small>${sub}</small>` : ''}</span></div>`;
+}
 const lastWide = (list) => (list.filter((x) => !x.includes('tile wide')).length % 2 ? [...list.slice(0, -1), list[list.length - 1].replace('class="tile ', 'class="tile wide ')] : list); // no lone half-width tile
-function tile(k, v, s = '', cls = '') { return `<div class="tile ${cls}"><span class="k">${k}</span><span class="v">${v}</span>${s ? `<span class="s">${s}</span>` : ''}</div>`; }
 
 function renderStop(day, s) {
   const i = day.stops.indexOf(s), ctx = dayCtx(day), f = fc(day, s);
@@ -593,52 +615,51 @@ function renderStop(day, s) {
   const sun = sunOf(day);
   const tiles = [], cond = [], move = [];
   if (f) {
-    const h = f.now, [ic, label] = wxOf(h.wc);
-    const sub = [];
-    if (f.next) sub.push(`${f.next.time}: ${r0(f.next.tc)}°, rain ${r0(f.next.pp)}%, gusts ${r0(f.next.wg)}`);
-    if (f.span.gHi != null && f.span.gHi - f.span.gLo >= 20 && f.span.gHi >= LIMITS.gust) sub.push(`Models disagree on gusts: ${f.span.gLo}–${f.span.gHi} km/h`);
-    tiles.push(`<div class="tile wide wxd"><span class="k">Weather at ${h.time}</span>
-      <span class="wxrow"><span class="v">${ico(ic, '', label)} ${r0(h.tc)}°</span><span class="v2">Rain <b>${r0(h.pp)}%</b>${h.pr >= 0.1 ? ` · ${n1(h.pr)} mm` : ''}</span><span class="v2">Wind <b>${r0(h.ws)}</b>, gusts <b>${r0(h.wg)}</b> km/h</span></span>
-      ${sub.length ? `<span class="s">${sub.join('<br>')}</span>` : ''}</div>`);
+    const wxRow = (h, main) => `<div class="wxr${main ? ' main' : ''}" role="row"><span class="wt" role="cell">${h.time}</span>
+        <span role="cell">${ico(wxOf(h.wc)[0], '', wxOf(h.wc)[1])}<b>${r0(h.tc)}°</b></span>
+        <span role="cell">${ico('drop', '', 'rain')}<b>${r0(h.pp)}%</b>${main && h.pr >= 0.1 ? `<small>${n1(h.pr)} mm</small>` : ''}</span>
+        <span role="cell">${ico('wind', '', 'wind and gusts')}<b>${r0(h.ws)}</b><i>to</i><b${h.wg >= LIMITS.gustSevere ? ' class="hot"' : ''}>${r0(h.wg)}</b>${main ? '<small>km/h</small>' : ''}</span></div>`;
+    const spread = f.span.gHi != null && f.span.gHi - f.span.gLo >= 20 && f.span.gHi >= LIMITS.gust ? `<p class="wxfoot">Models disagree on gusts: ${f.span.gLo} to ${f.span.gHi} km/h</p>` : '';
+    tiles.push(`<div class="tile wide wxgrid wxd" role="table" aria-label="Weather on arrival and the hour after">${wxRow(f.now, true)}${f.next ? wxRow(f.next, false) : ''}${spread}</div>`);
+    const h = f.now;
     if (s.type === 'view') {
       const c = clearerWindow(day, s, f);
-      cond.push(tile('Cloud cover', `${r0(h.cc)}%`, `${f.next ? `then ${r0(f.next.cc)}%` : ''}${c ? `${f.next ? ' · ' : ''}<span class="good">clearer around ${c.t}</span>` : ''}`, 'wxd' + (h.cc >= 85 ? ' bad' : '')));
+      cond.push(fact(ico('cloud'), `${r0(h.cc)}%`, c ? `<span class="good">clearer ${c.t}</span>` : f.next ? `then ${r0(f.next.cc)}%` : '', 'wxd' + (h.cc >= 85 ? ' bad' : ''), 'Cloud cover'));
     }
-    if (f.sea) cond.push(tile('Sea', `${n1(f.sea.wh)} m waves`, `every ${r0(f.sea.wp)} s · swell ${n1(f.sea.sh)} m`, 'wxd' + (f.sea.max >= LIMITS.wave ? ' bad' : '')));
+    if (f.sea) cond.push(fact(ico('wave'), `${n1(f.sea.wh)} m`, `swell ${n1(f.sea.sh)} m, ${r0(f.sea.wp)} s`, 'wxd' + (f.sea.max >= LIMITS.wave ? ' bad' : ''), 'Waves'));
     if (f.tide) cond.push(f.tide.far
-      ? tile('Tide', `High tide${f.tide.high ? ` ${f.tide.high}` : ''}`, `low tide ${toMin(f.tide.low) < t ? 'was' : 'is'} ${f.tide.low}, not during your visit`, 'wxd')
-      : tile('Tide', `Low tide ${f.tide.low}`, `${f.tide.trend} when you arrive`, 'wxd'));
+      ? fact(ico('tide'), `High ${f.tide.high || ''}`, `low ${toMin(f.tide.low) < t ? 'was' : 'is'} ${f.tide.low}`, 'wxd', 'Tide')
+      : fact(ico('tide'), `Low ${f.tide.low}`, f.tide.trend, 'wxd', 'Tide'));
     if (sun && ['view', 'hike', 'sight', 'boat'].includes(s.type)) {
       const end = t + s.durationMin, set = toMin(sun.set);
-      if (end > set + 15) cond.push(tile('Daylight', `Sunset ${sun.set}`, 'this stop runs past it', 'wxd bad'));
-      else if (set - t <= 75 && set >= t) cond.push(tile('Daylight', `Sunset ${sun.set}`, '', 'wxd'));
+      if (end > set + 15) cond.push(fact(ico('sunset'), sun.set, 'ends after dark', 'wxd bad', 'Sunset'));
+      else if (set - t <= 75 && set >= t) cond.push(fact(ico('sunset'), sun.set, '', 'wxd', 'Sunset'));
     }
   } else if (!state.wx) tiles.push(`<p class="nowx">${navigator.onLine === false ? 'No saved forecast yet.' : 'Loading the forecast…'}</p>`);
   tiles.push(...lastWide(cond));
-  if (s.parking && s.type !== 'logistics') tiles.push(`<div class="tile wide"><span class="k">Parking · ${s.parking.free ? 'free' : 'paid'}</span><span class="v">${esc(s.parking.name)}</span>${s.parking.note ? `<span class="s">${esc(s.parking.note)}</span>` : ''}</div>`);
-  if (s.walk.minutes > 0 && !(s.fixed && !s.parking)) move.push(tile(s.parking ? 'Walk from parking' : 'On foot', `${s.walk.minutes} min`, `${s.walk.km} km${s.walk.surface ? ` · ${esc(s.walk.surface)}` : ''}`));
+  if (s.parking && s.type !== 'logistics') tiles.push(`<div class="tile wide"><span class="ti" aria-hidden="true"><i class="pk">P</i></span><span class="tv"><span class="sr">Parking: </span><b>${esc(s.parking.name)}<em class="tagf${s.parking.free ? '' : ' paid'}">${s.parking.free ? 'free' : 'paid'}</em></b>${s.parking.note ? `<small>${esc(s.parking.note)}</small>` : ''}</span></div>`);
+  if (s.walk.minutes > 0 && !(s.fixed && !s.parking)) move.push(fact(ico('walk'), `${s.walk.minutes} min`, `${s.walk.km} km${s.walk.surface ? `, ${esc(s.walk.surface)}` : ''}`, '', s.parking ? 'Walk from parking' : 'On foot'));
   const lv = leaveBy(day, i);
   if (lv && lv.tr.min >= 3) {
-    if (lv.clash) { if (move.length) move[move.length - 1] = move[move.length - 1].replace('class="tile ', 'class="tile wide '); move.push(tile('Clash', `${hm(eff(day, lv.next))} ${esc(lv.next.name)}`, `You'd need to leave at ${hm(lv.by)}, before you arrive.`, 'bad wide')); }
-    else move.push(tile('Leave by', hm(lv.by), `${lv.tr.est ? '~' : ''}${lv.tr.min} min to stop ${i + 2}${lv.short > 5 ? ` · cuts this stop by ${lv.short} min` : ''}`, ctx.isToday && !isDone && ctx.t.min > lv.by && ctx.t.min < eff(day, lv.next) + 30 ? 'bad' : ''));
+    if (lv.clash) { if (move.length) move[move.length - 1] = move[move.length - 1].replace('class="tile ', 'class="tile wide '); move.push(fact(ico('warnfill'), `Clashes with ${hm(eff(day, lv.next))}`, `${esc(lv.next.name)}. You'd need to leave at ${hm(lv.by)}, before you arrive.`, 'bad wide')); }
+    else move.push(fact(ico('clock'), hm(lv.by), `leave, ${lv.tr.est ? '~' : ''}${lv.tr.min} min to stop ${i + 2}${lv.short > 5 ? `<span class="hot">cuts ${lv.short} min here</span>` : ''}`, ctx.isToday && !isDone && ctx.t.min > lv.by && ctx.t.min < eff(day, lv.next) + 30 ? 'bad' : '', 'Leave by'));
   }
   tiles.push(...lastWide(move));
   const sev = f ? f.warn.filter((w) => w.sev >= 2) : [];
   const p = s.parking || s, prev = day.stops[i - 1], nxt = day.stops[i + 1];
-  const kind = [TYPE[s.type] ?? s.type, s.bookingNeeded ? 'book ahead' : ''].filter(Boolean).join(' · ');
   return `<div class="d-head" style="--day:${day.color}">
       <div class="d-top"><button class="back" type="button" id="back" data-back aria-label="Back to the day">${ico('chev')}</button>
-        <p class="kicker"><span class="dotnum" aria-hidden="true">${i + 1}</span><span class="sr">Stop ${i + 1}. </span>${kind || `Stop ${i + 1}`}</p>
+        <p class="kicker"><span class="dotnum" aria-hidden="true">${i + 1}</span><span class="sr">Stop ${i + 1}. </span><span>${TYPE[s.type] ?? esc(s.type)}</span>${s.bookingNeeded ? '<span class="tagf">book ahead</span>' : ''}</p>
         <div class="step"><button type="button" id="pg-prev" ${prev ? `data-sel="${prev.id}" aria-label="Previous stop: ${esc(prev.name)}"` : 'disabled aria-label="No previous stop"'}>${ico('chev', 'up')}</button><button type="button" id="pg-next" ${nxt ? `data-sel="${nxt.id}" aria-label="Next stop: ${esc(nxt.name)}"` : 'disabled aria-label="No next stop"'}>${ico('chev')}</button></div></div>
       <h2 id="stop-title" tabindex="-1">${esc(s.name)}</h2>
-      <p class="sub">${hm(t)}${s.durationMin ? ` to ${hm(t + s.durationMin)} · ${dur(s.durationMin)}` : ''}${t !== toMin(s.time) ? ' · moved' : ''}</p></div>
+      <p class="sub"><span>${hm(t)}${s.durationMin ? ` to ${hm(t + s.durationMin)}` : ''}</span>${s.durationMin ? `<span>${dur(s.durationMin)}</span>` : ''}${t !== toMin(s.time) ? '<span>moved</span>' : ''}</p></div>
     ${sev.length ? `<div class="alert wxd" role="status">${sev.map((w) => `<span>${ico('warnfill')} ${esc(w.text)}</span>`).join('')}</div>` : ''}
     ${s.note ? `<p class="note">${esc(s.note)}</p>` : ''}
     <div class="actions">${navBtn(p, !s.parking, 'nav-g', `${s.parking ? 'Drive to parking' : 'Walk there'} <span class="via">Google Maps</span>`, '', 'wide')}
       <a class="btn alt" id="nav-a" href="https://maps.apple.com/?daddr=${p.lat},${p.lon}&dirflg=${s.parking ? 'd' : 'w'}" target="_blank" rel="noopener">Apple Maps</a>
       <button class="btn alt done-btn" type="button" id="done-btn" data-done="${s.id}" aria-pressed="${isDone}">${ico('check')}${isDone ? 'Done' : 'Mark done'}</button></div>
     <div class="tiles">${tiles.join('')}</div>
-    ${s.parking && s.walk.km >= 0.3 ? `<p class="note"><a class="lnk" id="nav-w" href="https://maps.apple.com/?daddr=${s.lat},${s.lon}&dirflg=w" target="_blank" rel="noopener">Walking route · Apple Maps</a></p>` : ''}`;
+    ${s.parking && s.walk.km >= 0.3 ? `<p class="note"><a class="lnk" id="nav-w" href="https://maps.apple.com/?daddr=${s.lat},${s.lon}&dirflg=w" target="_blank" rel="noopener">Walking route in Apple Maps</a></p>` : ''}`;
 }
 
 function renderTrip() {
@@ -646,14 +667,14 @@ function renderTrip() {
   const first = state.days[0].date, last = state.days[state.days.length - 1].date;
   const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
   const tip = IOS && !standalone && !store.get('tipOff', false) ? `<aside class="tip"><span>To install: tap <b>Share</b>, then <b>Add to Home Screen</b>.</span><button type="button" id="tip-off" data-tipoff aria-label="Dismiss">${ico('close')}</button></aside>` : '';
-  return `<div class="head"><div class="head-text"><h2>${esc(state.itin.trip)}</h2><p class="sub">${first.slice(0, 7) === last.slice(0, 7) ? `${+first.slice(8)}–${fmtDate(last, { day: 'numeric', month: 'short', year: 'numeric' })}` : `${fmtDate(first, { day: 'numeric', month: 'short' })} – ${fmtDate(last, { day: 'numeric', month: 'short', year: 'numeric' })}`}</p></div>${statusBtn()}</div>
+  return `<div class="head"><div class="head-text"><h2>${esc(state.itin.trip)}</h2><p class="sub"><span>${first.slice(0, 7) === last.slice(0, 7) ? `${+first.slice(8)}–${fmtDate(last, { day: 'numeric', month: 'short', year: 'numeric' })}` : `${fmtDate(first, { day: 'numeric', month: 'short' })} – ${fmtDate(last, { day: 'numeric', month: 'short', year: 'numeric' })}`}</span></p></div>${statusBtn()}</div>
     <div class="daygrid">${state.days.map((d) => {
-    const sev = worst(d), v = sev ? esc(sev) : verdict(dayHours(d));
+    const sev = worst(d), v = sev ? `<span>${ico('warnfill')}${esc(sev)}</span>` : verdict(dayHours(d));
     const done = d.stops.filter((s) => state.done[s.id]).length;
     return `<button class="daycard${d.date === t.date ? ' today' : ''}" type="button" id="daycard-${d.idx}" data-view="${d.idx}" style="--day:${d.color}">
         <span class="daynum" aria-hidden="true">${d.idx + 1}</span>
-        <span class="dc-text"><small>${d.date === t.date ? 'Today · ' : ''}${fmtDate(d.date, { weekday: 'short', day: 'numeric', month: 'short' })} · ${d.stops.length} stops${done ? `, ${done} done` : ''}</small><b>${esc(d.title)}</b>
-          ${v ? `<small class="wxd${sev ? ' hot' : ''}">${sev ? ico('warnfill') + ' ' : ''}${v}</small>` : ''}</span>${ico('chev', 'chev')}</button>`;
+        <span class="dc-text"><small class="dc-date"><span>${d.date === t.date ? 'Today' : fmtDate(d.date, { weekday: 'short', day: 'numeric', month: 'short' })}</span><span>${d.stops.length} stops${done ? `, ${done} done` : ''}</span></small><b>${esc(d.title)}</b>
+          ${v ? `<small class="wxd vd${sev ? ' hot' : ''}">${v}</small>` : ''}</span>${ico('chev', 'chev')}</button>`;
   }).join('')}</div>${tip}`;
 }
 
@@ -685,14 +706,14 @@ function renderList() {
 function render() { if (!state.itin) return; renderTabs(); renderList(); }
 
 function selectView(v) {
-  state.view = v; state.sel = null; tabsNeedScroll = true; stripToNow = true;
+  state.view = v; state.sel = null; state.showPast = false; tabsNeedScroll = true; stripToNow = true;
   $('#list').scrollTop = 0;
   render();
   if (state.snap === 'full') setSnap('half'); else setSnap(state.snap);
-  const el = $('#list'), r = el.querySelector('.row.current') || el.querySelector('.row.next'), nu = el.querySelector('.nextup');
-  if (r && nu && state.snap !== 'peek') el.scrollTop = Math.max(0, r.getBoundingClientRect().top - el.getBoundingClientRect().top - nu.offsetHeight - 30); // today: start at the current stop
+  const el = $('#list'), r = el.querySelector('.earlier') || el.querySelector('.row.current') || el.querySelector('.row.next'), nu = el.querySelector('.nextup');
+  if (r && nu && state.snap !== 'peek') el.scrollTop = Math.max(0, r.getBoundingClientRect().top - el.getBoundingClientRect().top - nu.offsetHeight - 14); // today: start at the current stop
   drawMap(true);
-  document.title = v === 'trip' ? `${state.itin.trip} Trip` : `Day ${v + 1} · ${state.itin.trip} Trip`;
+  document.title = v === 'trip' ? `${state.itin.trip} Trip` : `Day ${v + 1}, ${state.itin.trip} Trip`;
 }
 function selectStop(id) {
   if (state.view === 'trip') return;
@@ -730,6 +751,7 @@ function bind() {
     if (e.target.closest('[data-refresh]')) { if (navigator.onLine === false) toast('You are offline. Showing the last saved forecast.'); return refreshWeather(true); }
     if (e.target.closest('[data-tipoff]')) { store.set('tipOff', true); return renderList(); }
     if (e.target.closest('[data-back]')) return backToDay();
+    if (e.target.closest('[data-past]')) { state.showPast = true; return renderList(); }
     const v = e.target.closest('[data-view]');
     if (v) return selectView(+v.dataset.view);
     const day = state.days[state.view];

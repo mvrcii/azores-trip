@@ -65,7 +65,7 @@ for (const [di, d] of (itin.days || []).entries()) {
     }
     if (!it.walk || !Number.isInteger(it.walk.minutes) || it.walk.minutes < 0 || !isNum(it.walk.km)) err(w, 'walk needs whole minutes and km');
     else if (it.walk.polyline) poly(`${w}.walk.polyline`, it.walk.polyline);
-    if (it.route) { if (!MODES.includes(it.route.mode)) err(`${w}.route`, 'mode invalid'); poly(`${w}.route.polyline`, it.route.polyline); }
+    if (it.route) { if (!MODES.includes(it.route.mode)) err(`${w}.route`, 'mode invalid'); poly(`${w}.route.polyline`, it.route.polyline); if (it.route.via) poly(`${w}.route.via`, it.route.via); }
     if (it.sea) coord(`${w}.sea`, it.sea);
     if (typeof it.bookingNeeded !== 'boolean') err(w, 'bookingNeeded must be true or false');
   }
