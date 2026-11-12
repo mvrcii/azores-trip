@@ -27,18 +27,127 @@ const TYPE = { view: 'Viewpoint', hike: 'Hike', hotspring: 'Hot spring', food: '
 const fmtDate = (d, opt) => new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', ...opt }).format(new Date(d + 'T12:00:00Z'));
 const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-/* ---------- state ---------- */
+/* ---------- trips ---------- */
+// Each trip keeps its own ticks, time shifts, routes, forecast and cached plan under trip:<id>:<key>.
 const params = new URLSearchParams(location.search);
+let tripId = null;
+const tstore = {
+  get: (k, d) => store.get(`trip:${tripId}:${k}`, d),
+  set: (k, v) => store.set(`trip:${tripId}:${k}`, v),
+};
+const LEGACY_TRIP = 'sao-miguel-2026'; // the only trip before trips became files
+// Keys saved before trips were namespaced belong to São Miguel. The live app (/) and the preview (/next/) share
+// this origin's storage, and the live app still reads and writes the old keys, so they are copied, never deleted.
+// Ticks and time shifts are copied again whenever the live app changed them since the last copy.
+function migrateLegacy() {
+  const raw = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const put = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage blocked or full */ } };
+  for (const k of ['routes.v1', 'wx.v1', 'itin.v1']) { // caches: the first copy is enough
+    const v = raw(k), nk = `trip:${LEGACY_TRIP}:${k}`;
+    if (v != null && raw(nk) == null) put(nk, v);
+  }
+  // Ticks and shifts: replay what the live app changed since the last copy (added, changed or removed entries, so an
+  // un-tick or a shift reset there carries over too); entries the live app did not touch keep the preview's value.
+  for (const k of ['done.v1', 'shift.v1']) {
+    const v = raw(k), nk = `trip:${LEGACY_TRIP}:${k}`, seen = `trip:${LEGACY_TRIP}:legacy.${k}`;
+    if (v == null || v === raw(seen)) continue; // nothing there, or nothing new since the last copy
+    try {
+      const before = JSON.parse(raw(seen) || '{}') || {}, live = JSON.parse(v) || {}, mine = JSON.parse(raw(nk) || '{}') || {};
+      for (const key of Object.keys(before)) if (!(key in live)) delete mine[key];
+      for (const [key, val] of Object.entries(live)) if (before[key] !== val) mine[key] = val;
+      put(nk, JSON.stringify(mine)); put(seen, v);
+    } catch { /* unreadable: leave both alone */ }
+  }
+}
+function cachedTrips() { // no saved index: the trips whose plan this phone already has
+  const out = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const id = localStorage.key(i).match(/^trip:([a-z0-9-]+):itin\.v1$/)?.[1];
+      const it = id && store.get(`trip:${id}:itin.v1`, null);
+      if (it?.days?.length && it.timezone) out.push({ id, start: it.days[0].date, end: it.days[it.days.length - 1].date, timezone: it.timezone });
+    }
+  } catch { /* none */ }
+  return out.sort((a, b) => (a.start < b.start ? -1 : 1));
+}
+const validTrips = (list) => (Array.isArray(list) ? list.filter((t) => /^[a-z0-9-]+$/.test(t?.id || '') && t.start && t.end && t.timezone) : []);
+async function loadIndex() {
+  try {
+    const r = await fetch('data/trips/index.json', { signal: AbortSignal.timeout?.(8000), cache: 'no-cache' });
+    const list = r.ok ? validTrips((await r.json())?.trips) : [];
+    if (list.length) { store.set('trips.v1', list); return list; }
+  } catch { /* offline */ }
+  return null;
+}
+// ?trip=<id>, else the trip that contains today, else the next one, else the first.
+function pickTrip(list) {
+  const want = params.get('trip');
+  if (want && list.some((t) => t.id === want)) return want;
+  const today = (t) => params.get('now')?.slice(0, 10) || todayIn(t.timezone).date;
+  const sorted = [...list].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+  return (sorted.find((t) => t.start <= today(t) && today(t) <= t.end) || sorted.find((t) => t.start > today(t)) || sorted[0])?.id || null;
+}
+function setTrip(id) {
+  tripId = id;
+  state.routes = tstore.get('routes.v1', {}); state.done = tstore.get('done.v1', {}); state.shift = tstore.get('shift.v1', {});
+}
+let freshIndex = null; // the index request still running behind a choice made from the saved index
+async function chooseTrip() { // true when a trip is chosen
+  if (tripId) return true;
+  const fresh = loadIndex();
+  let list = validTrips(store.get('trips.v1', null));
+  if (!list.length) list = cachedTrips(); // no saved index yet (first launch after the live app): the plans this phone has
+  const want = params.get('trip');
+  if (!list.length || (want && !list.some((t) => t.id === want))) list = (await fresh) || list; // nothing to go on: wait for the network
+  else freshIndex = fresh; // the phone knows its trips: open one now, never wait on weak signal; followIndex() checks the fresh list
+  const id = list.length ? pickTrip(list) : null;
+  if (!id) return false;
+  setTrip(id);
+  return true;
+}
+// A fresh index can change the choice: a new trip under way, or the open trip removed. Switch then, unless the user
+// has moved around in the open trip, which still exists.
+async function followIndex() {
+  const fresh = freshIndex; freshIndex = null;
+  const list = fresh && (await fresh);
+  if (!list || !tripId) return;
+  const id = pickTrip(list), gone = !list.some((t) => t.id === tripId);
+  if (id && id !== tripId && (gone || !state.touched)) await switchTrip(id, gone);
+}
+// The trip on screen stays fully in charge (its ticks, shifts and storage) until the new trip's plan is in hand;
+// then id, state and plan change together, with no await in between.
+let switching = null;
+async function switchTrip(id, force) {
+  switching = id;
+  const fresh = await fetchItin(id);
+  if (switching !== id) return; // another switch started meanwhile
+  switching = null;
+  if (!force && state.touched) return; // the user started looking around while the plan loaded: leave them be
+  const itin = fresh || store.get(`trip:${id}:itin.v1`, null);
+  if (!itin?.days?.length) return; // the new trip cannot be shown: stay on the one on screen
+  const prev = { tripId, itin: state.itin, days: state.days, tz: state.tz, wx: state.wx, routes: state.routes, done: state.done, shift: state.shift };
+  setTrip(id); state.wx = null; adoptWx(tstore.get('wx.v1', null));
+  try { applyItin(itin); } catch (err) { // unusable plan: back to the trip on screen, untouched
+    console.error(err);
+    tripId = prev.tripId; Object.assign(state, { itin: prev.itin, days: prev.days, tz: prev.tz, wx: prev.wx, routes: prev.routes, done: prev.done, shift: prev.shift });
+    return;
+  }
+  if (fresh) tstore.set('itin.v1', fresh);
+  state.touched = false;
+  start(); refreshWeather(true); ensureRoutes();
+}
+
+/* ---------- state ---------- */
 const state = {
-  itin: null, days: [], view: 'trip', sel: null, snap: 'half', wx: null, routes: store.get('routes.v1', {}),
-  done: store.get('done.v1', {}), shift: store.get('shift.v1', {}), lastWxTry: 0, me: null, optsOpen: false, touched: false, listTop: 0,
+  itin: null, days: [], tz: 'UTC', view: 'trip', sel: null, snap: 'half', wx: null, routes: {},
+  done: {}, shift: {}, lastWxTry: 0, me: null, optsOpen: false, touched: false, listTop: 0,
 };
 const plan = createPlan(() => state);
 const { buildDay, isFixed, shiftOf, eff, driveInfo, travelTo, leaveBy, dayTotals } = plan;
 const dayCtx = (day) => plan.dayCtx(day, now());
 function now() {
-  const o = params.get('now'); // ?now=2026-11-13T10:30 for testing
-  return o ? { date: o.slice(0, 10), min: toMin(o.slice(11, 16)) } : todayIn();
+  const o = params.get('now'); // ?now=2026-11-13T10:30 for testing, in the trip's local time
+  return o ? { date: o.slice(0, 10), min: toMin(o.slice(11, 16)) } : todayIn(state.tz);
 }
 
 /* ---------- itinerary → per-day model ---------- */
@@ -55,22 +164,26 @@ function adoptWx(wx) {
     if (!Object.keys(wx.sea || {}).length && Object.keys(old.sea || {}).length) wx.sea = old.sea;
     for (const [k, W] of Object.entries(wx.loc)) if (!W.gLo && old.loc?.[k]?.gLo && old.loc[k].t.length === W.t.length && old.loc[k].t[0] === W.t[0]) { W.gLo = old.loc[k].gLo; W.gHi = old.loc[k].gHi; }
   }
-  state.wx = wx; store.set('wx.v1', wx); return true;
+  state.wx = wx; tstore.set('wx.v1', wx); return true;
 }
 let wxBusy = false;
 async function refreshWeather(force) {
   if (!state.itin || wxBusy) return;
   if (!force && Date.now() - state.lastWxTry < 60000) return;
   state.lastWxTry = Date.now(); wxBusy = true; paintAge();
+  const id = tripId;
   try {
-    if (adoptWx(await fetchWeather(state.itin, todayIn().date, fetch, state.wx))) render();
+    const wx = await fetchWeather(state.itin, todayIn(state.tz).date, fetch, state.wx);
+    if (tripId === id && adoptWx(wx)) render();
   } catch {
     try { // hourly snapshot published with the site
-      const r = await fetch(`weather.json?t=${Math.floor(Date.now() / 600000)}`, { signal: AbortSignal.timeout?.(8000) });
-      if (r.ok && adoptWx(await r.json())) render();
+      const r = await fetch(`weather/${id}.json?t=${Math.floor(Date.now() / 600000)}`, { signal: AbortSignal.timeout?.(8000) });
+      if (r.ok && tripId === id && adoptWx(await r.json())) render();
     } catch { /* offline: keep what we have */ }
   }
-  wxBusy = false; state.wxTried = true; if (!state.wx) renderList();
+  wxBusy = false; state.wxTried = true;
+  if (tripId !== id) return refreshWeather(true); // another trip was opened meanwhile: fetch its forecast
+  if (!state.wx) renderList();
   paintAge();
 }
 function ageText() {
@@ -162,7 +275,7 @@ async function ensureRoutes() {
           const step = Math.max(1, Math.ceil(rt.geometry.coordinates.length / 400)); // keep localStorage small
           const g = rt.geometry.coordinates.filter((_, i, a) => i % step === 0 || i === a.length - 1).map(([x, y]) => [+y.toFixed(5), +x.toFixed(5)]);
           state.routes[seg.key] = { s: rt.duration, m: rt.distance, g };
-          store.set('routes.v1', state.routes);
+          tstore.set('routes.v1', state.routes);
           if (state.view === 'trip' || state.view === day.idx) routeRedraw();
         }
       } catch { /* offline or rate-limited: straight line stays */ }
@@ -391,7 +504,7 @@ async function toggleRadar() {
     const f = j.radar.past[j.radar.past.length - 1];
     radarLayer = L.tileLayer(`${j.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`, { opacity: 0.6, maxNativeZoom: 7, maxZoom: 19, attribution: 'Radar © RainViewer' }).addTo(map);
     btn.setAttribute('aria-pressed', 'true');
-    toast(`Rain radar from ${hm(todayIn(undefined, new Date(f.time * 1000)).min)}`);
+    toast(`Rain radar from ${hm(todayIn(state.tz, new Date(f.time * 1000)).min)}`);
   } catch { toast('Rain radar is not reachable right now.'); }
   radarBusy = false;
 }
@@ -667,7 +780,7 @@ function bind() {
     if (dn) {
       const id = dn.dataset.done;
       if (state.done[id]) delete state.done[id]; else state.done[id] = Date.now();
-      store.set('done.v1', state.done);
+      tstore.set('done.v1', state.done);
       renderTabs();
       return state.done[id] ? backToDay() : (renderList(), drawMap(false));
     }
@@ -676,7 +789,7 @@ function bind() {
       const d = +sh.dataset.shift;
       const val = d === 0 ? 0 : Math.max(-120, Math.min(240, shiftOf(day) + d));
       if (val) state.shift[day.date] = val; else delete state.shift[day.date];
-      store.set('shift.v1', state.shift);
+      tstore.set('shift.v1', state.shift);
       return render();
     }
     const sel = e.target.closest('[data-sel]');
@@ -694,7 +807,7 @@ function bind() {
     if (document.hidden) { hiddenAt = Date.now(); stopWatch(); return; }
     if (geoWanted) startWatch();
     const away = hiddenAt ? Date.now() - hiddenAt : 0; hiddenAt = 0;
-    if (!state.itin) { if (!(await loadItin())) return; start(); refreshWeather(true); ensureRoutes(); return; }
+    if (!state.itin) { if (!(await chooseTrip()) || !(await loadItin())) return; start(); refreshWeather(true); ensureRoutes(); followIndex(); return; }
     const today = now().date;
     if (today !== lastDate) { // new day since the app was last looked at
       lastDate = today;
@@ -707,7 +820,7 @@ function bind() {
   };
   document.addEventListener('visibilitychange', wake);
   window.addEventListener('pageshow', (e) => { if (e.persisted) wake(); });
-  window.addEventListener('online', async () => { paintAge(); if (!state.itin) { if (!(await loadItin())) return; start(); } refreshWeather(true); ensureRoutes(); });
+  window.addEventListener('online', async () => { paintAge(); if (!state.itin) { if (!(await chooseTrip()) || !(await loadItin())) return; start(); followIndex(); } refreshWeather(true); ensureRoutes(); });
   window.addEventListener('offline', paintAge);
   setInterval(() => { if (!document.hidden) refreshWeather(true); }, 15 * 60 * 1000);
   setInterval(() => { if (!document.hidden && state.itin) render(); else paintAge(); }, 60 * 1000);
@@ -720,23 +833,29 @@ function bind() {
 let lastDate = '';
 function applyItin(itin) {
   state.itin = itin;
+  state.tz = itin.timezone || 'UTC';
   state.days = itin.days.map(buildDay);
   for (const d of state.days) for (const st of d.stops) if (st.status === 'done' && !(st.id in state.done)) state.done[st.id] = 1; // done in the plan counts as ticked
   const keep = new Set(state.days.flatMap((d) => d.segs.filter((s) => s.key).map((s) => s.key)));
   for (const k of Object.keys(state.routes)) if (!keep.has(k)) delete state.routes[k]; // drop routes of an older plan
 }
-async function loadItin() { // true when a new or changed itinerary was applied
+async function fetchItin(id) { // a trip's plan from the server if the app can use it, else null
   try {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 8000);
-    const r = await fetch('data/itinerary.json', { signal: ctl.signal, cache: 'no-cache' });
+    const r = await fetch(`data/trips/${id}.json`, { signal: ctl.signal, cache: 'no-cache' });
     const itin = r.ok ? await r.json() : null;
     clearTimeout(timer);
-    if (!itin?.days?.length || itin.days.some((d) => !d.items?.some((i) => !i.mode))) return false;
-    if (state.itin && JSON.stringify(itin) === JSON.stringify(store.get('itin.v1', null))) return false;
-    applyItin(itin); store.set('itin.v1', itin); // store only what the app could digest
-    return true;
-  } catch { return false; }
+    return itin?.days?.length && itin.days.every((d) => d.items?.some((i) => !i.mode)) ? itin : null;
+  } catch { return null; }
+}
+async function loadItin() { // true when a new or changed itinerary was applied
+  const id = tripId;
+  const itin = await fetchItin(id);
+  if (!itin || tripId !== id) return false; // nothing usable, or another trip was opened meanwhile
+  if (state.itin && JSON.stringify(itin) === JSON.stringify(tstore.get('itin.v1', null))) return false;
+  applyItin(itin); tstore.set('itin.v1', itin); // store only what the app could digest
+  return true;
 }
 function start() {
   lastDate = now().date;
@@ -751,11 +870,22 @@ async function reloadItin() { // pick up a changed plan without throwing the use
   if (!state.touched && !date) start(); else selectView(i >= 0 ? i : 'trip');
   ensureRoutes();
 }
+async function retryWithFreshIndex() { // the saved index named a trip this phone has no plan for and the server does not give
+  const fresh = freshIndex; freshIndex = null;
+  if (!fresh || !(await fresh)) return false; // the fresh list is saved by now
+  tripId = null;
+  if (!(await chooseTrip())) return false;
+  freshIndex = null; // just fetched
+  state.wx = null; adoptWx(tstore.get('wx.v1', null));
+  return loadItin();
+}
 async function boot() {
   initMap(); bind();
   if ('serviceWorker' in navigator && import.meta.env.PROD) navigator.serviceWorker.register('sw.js').catch(() => {});
-  const cached = store.get('itin.v1', null);
-  adoptWx(store.get('wx.v1', null));
+  migrateLegacy();
+  if (!(await chooseTrip())) { $('#list').innerHTML = '<p class="nowx">Could not load your trips. Check your connection; the app retries when you come back to it.</p>'; return; }
+  const cached = tstore.get('itin.v1', null);
+  adoptWx(tstore.get('wx.v1', null));
   let painted = false;
   if (cached?.days?.length) { // paint from the saved copy at once, refresh behind it
     try { applyItin(cached); start(); painted = true; } catch (err) {
@@ -763,11 +893,13 @@ async function boot() {
       try { state.wx = null; applyItin(cached); start(); painted = true; } catch (err2) { console.error(err2); state.itin = null; } // bad saved weather? go on without it
     }
   }
-  if (painted) loadItin().then((changed) => { if (!changed) return; if (!state.touched) start(); else { const d = state.view === 'trip' ? -1 : Math.min(state.view, state.days.length - 1); selectView(d < 0 ? 'trip' : d); } ensureRoutes(); });
-  else if (await loadItin()) { try { start(); } catch (err) { console.error(err); state.wx = null; start(); } }
-  else { $('#list').innerHTML = '<p class="nowx">Could not load the itinerary. Check your connection; the app retries when you come back to it.</p>'; return; }
+  if (painted) {
+    loadItin().then((changed) => { if (!changed) return; if (!state.touched) start(); else { const d = state.view === 'trip' ? -1 : Math.min(state.view, state.days.length - 1); selectView(d < 0 ? 'trip' : d); } ensureRoutes(); });
+    followIndex();
+  } else if (await loadItin() || await retryWithFreshIndex()) { try { start(); } catch (err) { console.error(err); state.wx = null; start(); } }
+  else { tripId = null; freshIndex = null; $('#list').innerHTML = '<p class="nowx">Could not load the itinerary. Check your connection; the app retries when you come back to it.</p>'; return; }
 
-  if (!state.wx) { try { const r = await fetch('weather.json', { signal: AbortSignal.timeout?.(8000) }); if (r.ok && adoptWx(await r.json())) render(); } catch { /* none */ } }
+  if (!state.wx) { const id = tripId; try { const r = await fetch(`weather/${id}.json`, { signal: AbortSignal.timeout?.(8000) }); if (r.ok && tripId === id && adoptWx(await r.json())) render(); } catch { /* none */ } } // a late answer for a trip no longer open is dropped
   refreshWeather(true);
   ensureRoutes();
   if (store.get('geo', false)) { // resume live location only if it is already allowed, so launch never prompts
