@@ -69,6 +69,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.hostname === 'tile.openstreetmap.org') return e.respondWith(tile(req));
   if (url.origin !== self.location.origin) return; // weather, routing, radar: the app caches these itself
+  if (url.pathname.startsWith(new URL('next/', self.registration.scope).pathname)) return; // the preview version runs its own worker
   if (req.mode === 'navigate') return e.respondWith(shell(req, './'));
   if (/\/(data\/itinerary|weather)\.json$/.test(url.pathname)) return e.respondWith(networkFirst(req));
   e.respondWith(shell(req));

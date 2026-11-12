@@ -9,10 +9,12 @@
     "paths": "node scripts/bake-paths.mjs",
     "dev": "node scripts/validate.mjs && vite",
     "build": "node scripts/validate.mjs && node scripts/fetch-weather.mjs && vite build && node scripts/postbuild.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "playwright test"
   },
   "devDependencies": {
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "@playwright/test": "1.63.0"
   },
   "dependencies": {
     "@fontsource/patrick-hand": "^5.1.0",

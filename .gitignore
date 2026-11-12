@@ -2,3 +2,5 @@ node_modules/
 dist/
 public/data/
 public/weather.json
+test-results/
+playwright-report/
