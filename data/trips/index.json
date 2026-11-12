@@ -1,0 +1,12 @@
+{
+  "trips": [
+    {
+      "id": "sao-miguel-2026",
+      "name": "São Miguel",
+      "subtitle": "Azores road trip",
+      "start": "2026-11-12",
+      "end": "2026-11-18",
+      "timezone": "Atlantic/Azores"
+    }
+  ]
+}

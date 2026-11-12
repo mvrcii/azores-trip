@@ -1,0 +1,31 @@
+{
+  "trip": "Tokyo test",
+  "subtitle": "Fixture trip for the browser tests",
+  "timezone": "Asia/Tokyo",
+  "bases": {
+    "Asakusa": { "label": "Base: Asakusa", "lat": 35.7148, "lon": 139.7967 }
+  },
+  "days": [
+    {
+      "date": "2026-12-01",
+      "title": "Old Tokyo on foot",
+      "start": "Asakusa",
+      "base": "Asakusa",
+      "items": [
+        { "id": "tk1-sensoji", "time": "09:00", "durationMin": 60, "name": "Senso-ji", "type": "sight", "lat": 35.7148, "lon": 139.7967, "parking": null, "walk": { "minutes": 5, "km": 0.3 }, "note": "", "bookingNeeded": false },
+        { "id": "tk1-ueno", "time": "11:00", "durationMin": 90, "name": "Ueno Park", "type": "sight", "lat": 35.7156, "lon": 139.7745, "parking": null, "walk": { "minutes": 30, "km": 2.2 }, "note": "", "bookingNeeded": false },
+        { "id": "tk1-lunch", "time": "13:00", "durationMin": 60, "name": "Lunch in Yanaka", "type": "food", "lat": 35.7266, "lon": 139.7663, "parking": null, "walk": { "minutes": 20, "km": 1.5 }, "note": "", "bookingNeeded": false }
+      ]
+    },
+    {
+      "date": "2026-12-02",
+      "title": "Harbour day",
+      "start": "Asakusa",
+      "base": "Asakusa",
+      "items": [
+        { "id": "tk2-market", "time": "08:00", "durationMin": 90, "name": "Tsukiji Outer Market", "type": "food", "lat": 35.6654, "lon": 139.7707, "parking": null, "walk": { "minutes": 10, "km": 0.7 }, "note": "", "bookingNeeded": false },
+        { "id": "tk2-garden", "time": "10:30", "durationMin": 60, "name": "Hama-rikyu Gardens", "type": "view", "lat": 35.6600, "lon": 139.7633, "parking": null, "walk": { "minutes": 15, "km": 1.1 }, "note": "", "bookingNeeded": false }
+      ]
+    }
+  ]
+}

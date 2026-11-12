@@ -61,7 +61,7 @@ test('the sheet toggles height and never scrolls the page sideways', async ({ pa
 for (const now of ['2026-11-13T10:40', '2026-11-13T07:30', '2026-11-13T15:00']) {
   for (const late of [false, true]) {
     test(`today list starts clear of the next-up block (${now}${late ? ', forecast arrives late' : ''})`, async ({ page }) => {
-      if (late) await page.route(/weather\.json/, async (route) => { await new Promise((r) => setTimeout(r, 1500)); await route.continue(); });
+      if (late) await page.route(/weather\/[^/]+\.json/, async (route) => { await new Promise((r) => setTimeout(r, 1500)); await route.continue(); });
       await page.goto(`/?now=${now}`);
       await expect(page.locator('.nextup')).toBeVisible();
       await page.waitForTimeout(late ? 2500 : 800);

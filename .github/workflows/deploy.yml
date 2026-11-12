@@ -3,7 +3,7 @@ name: deploy
 # Publishes two versions to GitHub Pages in one deployment:
 #   /        the live app, built from main
 #   /next/   the preview, built from next (what the agents ship; promoted to main only by the owner)
-# The hourly run refreshes weather.json in both.
+# The hourly run refreshes the forecast snapshots (weather/<trip-id>.json) in both.
 on:
   push:
     branches: [main, next]
