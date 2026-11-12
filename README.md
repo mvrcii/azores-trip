@@ -1,5 +1,7 @@
 # azores-trip
 
+Live at https://mvrcii.de/azores-trip/ (open in Safari, then Share → Add to Home Screen).
+
 Personal trip app for a São Miguel (Azores) road trip, 12–18 Nov 2026. iPhone-first PWA:
 day tabs, a real map with drive / walk / hike / boat legs and parking pins, a timeline of
 stop cards, and live weather for every stop at its planned hour.
