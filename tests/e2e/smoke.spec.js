@@ -56,3 +56,21 @@ test('the sheet toggles height and never scrolls the page sideways', async ({ pa
   await expect(page.locator('#sheet')).toHaveAttribute('data-snap', 'full');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+// The list opens at the stop the traveller needs; it must start fully below the sticky next-up block.
+for (const now of ['2026-11-13T10:40', '2026-11-13T07:30', '2026-11-13T15:00']) {
+  for (const late of [false, true]) {
+    test(`today list starts clear of the next-up block (${now}${late ? ', forecast arrives late' : ''})`, async ({ page }) => {
+      if (late) await page.route(/weather\.json/, async (route) => { await new Promise((r) => setTimeout(r, 1500)); await route.continue(); });
+      await page.goto(`/?now=${now}`);
+      await expect(page.locator('.nextup')).toBeVisible();
+      await page.waitForTimeout(late ? 2500 : 800);
+      const gap = await page.evaluate(() => {
+        const list = document.querySelector('#list');
+        const first = list.querySelector('.earlier, .row.current, .row.next');
+        return first.getBoundingClientRect().top - document.querySelector('.nextup').getBoundingClientRect().bottom;
+      });
+      expect(gap).toBeGreaterThanOrEqual(0);
+    });
+  }
+}
