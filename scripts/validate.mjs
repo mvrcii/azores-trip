@@ -68,6 +68,7 @@ for (const [di, d] of (itin.days || []).entries()) {
     if (it.route) { if (!MODES.includes(it.route.mode)) err(`${w}.route`, 'mode invalid'); poly(`${w}.route.polyline`, it.route.polyline); if (it.route.via) poly(`${w}.route.via`, it.route.via); }
     if (it.sea) coord(`${w}.sea`, it.sea);
     if (typeof it.bookingNeeded !== 'boolean') err(w, 'bookingNeeded must be true or false');
+    if (it.status != null && !['booked', 'to_book', 'planned', 'done'].includes(it.status)) err(w, 'status must be booked, to_book, planned or done');
   }
   for (const it of d.items.filter((i) => i.mode)) for (const k of ['from', 'to']) if (!dayIds.has(it[k])) err(dw, `leg ${k} "${it[k]}" is not a stop id of this day`);
 }

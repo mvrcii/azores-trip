@@ -84,7 +84,7 @@ function buildDay(day, idx) {
 }
 
 // Running-late shift: moves every stop of the day except fixed ones (bookings, flights).
-const isFixed = (s) => s.bookingNeeded || s.fixed === true;
+const isFixed = (s) => s.bookingNeeded || s.fixed === true || s.status === 'booked';
 const shiftOf = (day) => state.shift[day.date] || 0;
 const eff = (day, s) => toMin(s.time) + (isFixed(s) ? 0 : shiftOf(day));
 
@@ -569,7 +569,7 @@ function row(day, i, ctx) {
   const mini = f ? `<span class="mini wxd${sev ? ' sev' : ''}"><span>${ico(wxOf(f.now.wc)[0], '', wxOf(f.now.wc)[1])} ${r0(f.now.tc)}°</span><small>${sev ? ico('warnfill') : ''}${note ? warnChip(note) : f.span.pp >= 20 ? `${ico('drop', '', 'rain')}${r0(f.span.pp)}%` : ''}</small></span>` : '';
   const tag = ctx.curId === s.id && !ctx.over ? '<span class="tag now">Now</span>' : ctx.nextId === s.id ? '<span class="tag nextb">Next</span>' : '';
   const lvRow = leaveBy(day, i), clash = lvRow?.clash ? `<span class="hot">clashes with ${hm(eff(day, lvRow.next))}</span>` : '';
-  const kind = [TYPE[s.type] ?? s.type, s.durationMin ? dur(s.durationMin) : ''].filter(Boolean).map((x) => `<span>${x}</span>`).join('');
+  const kind = [TYPE[s.type] ?? s.type, s.durationMin ? dur(s.durationMin) : ''].filter(Boolean).map((x) => `<span>${x}</span>`).join('') + (s.status === 'to_book' ? '<span class="hot">to book</span>' : '');
   html += `<li><button class="row${isDone ? ' done' : ''}${past && !isDone ? ' past' : ''}${ctx.nextId === s.id ? ' next' : ''}${ctx.curId === s.id && !ctx.over ? ' current' : ''}" type="button" id="row-${s.id}" data-sel="${s.id}" style="--day:${day.color}">
       <time${moved ? ' class="moved"' : ''}>${hm(t)}</time>
       <span class="num" aria-hidden="true">${isDone ? ico('check') : i + 1}</span>
@@ -591,7 +591,8 @@ function renderDay(day) {
     ${hourStrip(day, hours)}
     <details class="opts" id="opts"${state.optsOpen ? ' open' : ''}><summary id="opts-sum">Day details${ico('chev')}</summary><div class="opts-body">
       <ul class="facts">
-        <li>${ico('home')}${day.base ? esc(state.itin.bases[day.base].label) : 'Base tonight: to be decided'}</li>
+        ${day.planNote ? `<li>${ico('clock')}<span>Plan note: ${esc(day.planNote)}</span></li>` : ''}
+        <li>${ico('home')}${day.base ? esc(state.itin.bases[day.base].label) : esc(day.baseNote || 'No base tonight')}</li>
         ${tot.min ? `<li>${ico('logistics')}${tot.est ? 'About ' : ''}${dur(tot.min)} driving, ${km(tot.m)}</li>` : ''}
         ${tot.walk >= 0.5 ? `<li>${ico('walk')}About ${tot.walk.toFixed(1)} km on foot</li>` : ''}
         ${sun ? `<li class="wxd">${ico('sunrise')}${sun.rise}<span class="gap"></span>${ico('sunset')}${sun.set}<span class="sr"> sunrise and sunset</span></li>` : ''}
@@ -649,7 +650,7 @@ function renderStop(day, s) {
   const p = s.parking || s, prev = day.stops[i - 1], nxt = day.stops[i + 1];
   return `<div class="d-head" style="--day:${day.color}">
       <div class="d-top"><button class="back" type="button" id="back" data-back aria-label="Back to the day">${ico('chev')}</button>
-        <p class="kicker"><span class="dotnum" aria-hidden="true">${i + 1}</span><span class="sr">Stop ${i + 1}. </span><span>${TYPE[s.type] ?? esc(s.type)}</span>${s.bookingNeeded ? '<span class="tagf">book ahead</span>' : ''}</p>
+        <p class="kicker"><span class="dotnum" aria-hidden="true">${i + 1}</span><span class="sr">Stop ${i + 1}. </span><span>${TYPE[s.type] ?? esc(s.type)}</span>${s.status === 'booked' ? '<span class="tagf ok">booked</span>' : s.status === 'to_book' || (s.bookingNeeded && !s.status) ? '<span class="tagf todo">to book</span>' : ''}</p>
         <div class="step"><button type="button" id="pg-prev" ${prev ? `data-sel="${prev.id}" aria-label="Previous stop: ${esc(prev.name)}"` : 'disabled aria-label="No previous stop"'}>${ico('chev', 'up')}</button><button type="button" id="pg-next" ${nxt ? `data-sel="${nxt.id}" aria-label="Next stop: ${esc(nxt.name)}"` : 'disabled aria-label="No next stop"'}>${ico('chev')}</button></div></div>
       <h2 id="stop-title" tabindex="-1">${esc(s.name)}</h2>
       <p class="sub"><span>${hm(t)}${s.durationMin ? ` to ${hm(t + s.durationMin)}` : ''}</span>${s.durationMin ? `<span>${dur(s.durationMin)}</span>` : ''}${t !== toMin(s.time) ? '<span>moved</span>' : ''}</p></div>
@@ -814,6 +815,7 @@ let lastDate = '';
 function applyItin(itin) {
   state.itin = itin;
   state.days = itin.days.map(buildDay);
+  for (const d of state.days) for (const st of d.stops) if (st.status === 'done' && !(st.id in state.done)) state.done[st.id] = 1; // done in the plan counts as ticked
   const keep = new Set(state.days.flatMap((d) => d.segs.filter((s) => s.key).map((s) => s.key)));
   for (const k of Object.keys(state.routes)) if (!keep.has(k)) delete state.routes[k]; // drop routes of an older plan
 }
