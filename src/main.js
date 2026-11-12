@@ -45,15 +45,20 @@ const tstore = {
   set: (k, v) => store.set(`trip:${tripId}:${k}`, v),
 };
 const LEGACY_TRIP = 'sao-miguel-2026'; // the only trip before trips became files
-function migrateLegacy() { // one time: keys saved before trips were namespaced belong to São Miguel
-  for (const k of ['done.v1', 'shift.v1', 'routes.v1', 'wx.v1', 'itin.v1']) {
-    try {
-      const v = localStorage.getItem(k);
-      if (v == null) continue;
-      const nk = `trip:${LEGACY_TRIP}:${k}`;
-      if (localStorage.getItem(nk) == null) localStorage.setItem(nk, v);
-      localStorage.removeItem(k);
-    } catch { /* storage blocked: nothing to migrate */ }
+// Keys saved before trips were namespaced belong to São Miguel. The live app (/) and the preview (/next/) share
+// this origin's storage, and the live app still reads and writes the old keys, so they are copied, never deleted.
+// Ticks and time shifts are copied again whenever the live app changed them since the last copy.
+function migrateLegacy() {
+  const raw = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const put = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage blocked or full */ } };
+  for (const k of ['routes.v1', 'wx.v1', 'itin.v1']) { // caches: the first copy is enough
+    const v = raw(k), nk = `trip:${LEGACY_TRIP}:${k}`;
+    if (v != null && raw(nk) == null) put(nk, v);
+  }
+  for (const k of ['done.v1', 'shift.v1']) { // ticks from both apps are kept; the live app's shifts win
+    const v = raw(k), nk = `trip:${LEGACY_TRIP}:${k}`, seen = `trip:${LEGACY_TRIP}:legacy.${k}`;
+    if (v == null || v === raw(seen)) continue; // nothing there, or nothing new since the last copy
+    try { put(nk, JSON.stringify({ ...JSON.parse(raw(nk) || '{}'), ...JSON.parse(v) })); put(seen, v); } catch { /* unreadable: leave both alone */ }
   }
 }
 function cachedTrips() { // offline and no saved index: the trips whose plan this phone already has
@@ -90,6 +95,7 @@ async function chooseTrip() { // true when a trip is chosen
   let list = validTrips(store.get('trips.v1', null));
   const want = params.get('trip');
   if (!list.length || (want && !list.some((t) => t.id === want))) list = (await fresh) || list;
+  else list = (await Promise.race([fresh, new Promise((r) => setTimeout(r, 1500, null))])) || list; // a fresh index wins if it comes quickly (a new or removed trip); weak signal never waits long
   if (!list.length) list = cachedTrips();
   const id = list.length ? pickTrip(list) : null;
   if (!id) return false;
@@ -923,7 +929,7 @@ async function boot() {
   }
   if (painted) loadItin().then((changed) => { if (!changed) return; if (!state.touched) start(); else { const d = state.view === 'trip' ? -1 : Math.min(state.view, state.days.length - 1); selectView(d < 0 ? 'trip' : d); } ensureRoutes(); });
   else if (await loadItin()) { try { start(); } catch (err) { console.error(err); state.wx = null; start(); } }
-  else { $('#list').innerHTML = '<p class="nowx">Could not load the itinerary. Check your connection; the app retries when you come back to it.</p>'; return; }
+  else { tripId = null; $('#list').innerHTML = '<p class="nowx">Could not load the itinerary. Check your connection; the app retries when you come back to it.</p>'; return; }
 
   if (!state.wx) { try { const r = await fetch(`weather/${tripId}.json`, { signal: AbortSignal.timeout?.(8000) }); if (r.ok && adoptWx(await r.json())) render(); } catch { /* none */ } }
   refreshWeather(true);

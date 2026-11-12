@@ -66,9 +66,9 @@ test('trips do not share ticks or cached data', async ({ page }) => {
   await expect(page.locator('#row-tk1-ueno')).toHaveClass(/done/);
 });
 
-test('ticks saved before trips were files move to São Miguel', async ({ page }) => {
+test('ticks saved before trips were files carry over to São Miguel, and the live app keeps its own', async ({ page }) => {
   await page.goto('/?now=2026-11-01T10:00');
-  await page.evaluate(() => { // the state of a phone that used the app before this change
+  await page.evaluate(() => { // a phone that used the live app, which shares this origin's storage and still uses these keys
     localStorage.clear();
     localStorage.setItem('done.v1', JSON.stringify({ 'fri-boca': 1 }));
     localStorage.setItem('shift.v1', JSON.stringify({ '2026-11-13': 30 }));
@@ -76,10 +76,27 @@ test('ticks saved before trips were files move to São Miguel', async ({ page })
   await page.goto('/?day=2&now=2026-11-01T10:00');
   await expect(page.locator('#row-fri-boca')).toHaveClass(/done/);
   await expect(page.locator('.head .sub')).toContainText('plan +30 min');
-  const ls = await storage(page);
-  expect(ls['done.v1']).toBeUndefined();
-  expect(ls['shift.v1']).toBeUndefined();
+  let ls = await storage(page);
+  expect(JSON.parse(ls['done.v1'])).toEqual({ 'fri-boca': 1 }); // untouched for the live app
+  expect(JSON.parse(ls['shift.v1'])).toEqual({ '2026-11-13': 30 });
   expect(JSON.parse(ls[`trip:${SM}:done.v1`])).toHaveProperty('fri-boca');
+
+  // A tick here, then one in the live app: after the next start both are there.
+  await page.locator('#row-fri-ferraria').click();
+  await page.locator('#done-btn').click();
+  await page.evaluate(() => localStorage.setItem('done.v1', JSON.stringify({ 'fri-boca': 1, 'fri-hike': 2 })));
+  await page.goto('/?day=2&now=2026-11-01T10:00');
+  for (const id of ['fri-boca', 'fri-ferraria', 'fri-hike']) await expect(page.locator(`#row-${id}`)).toHaveClass(/done/);
+  ls = await storage(page);
+  expect(Object.keys(JSON.parse(ls['done.v1']))).toEqual(['fri-boca', 'fri-hike']); // the preview never writes the live app's keys
+});
+
+test('a fresh index wins over a saved one', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-12-01T02:30:00Z')); // during the Tokyo trip
+  await page.goto('/?trip=sao-miguel-2026');
+  await page.evaluate((sm) => localStorage.setItem('trips.v1', JSON.stringify(JSON.parse(localStorage.getItem('trips.v1')).filter((t) => t.id === sm))), SM);
+  await page.goto('/'); // the saved index knows only São Miguel; the server's lists Tokyo too
+  await expect(page.locator('.head h2')).toHaveText('Old Tokyo on foot');
 });
 
 test('the validator names the file and the problem', () => {
