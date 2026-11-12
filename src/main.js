@@ -699,6 +699,23 @@ function renderTrip() {
 }
 
 let stripToNow = false;
+// Today opens scrolled to the row the traveller needs, below the sticky next-up block. Layout above the row can still
+// change after the first paint (forecast strip, fonts), so the position is redone until the traveller scrolls.
+let autoAlign = false;
+function alignToNow() {
+  const el = $('#list'), nu = el.querySelector('.nextup');
+  const r = el.querySelector('.earlier') || el.querySelector('.row.current') || el.querySelector('.row.next');
+  if (!r || !nu || state.snap === 'peek' || state.sel) return;
+  el.scrollTop = Math.max(0, el.scrollTop + r.getBoundingClientRect().top - el.getBoundingClientRect().top - nu.getBoundingClientRect().height - 14);
+}
+// The next-up block can change height after it is drawn (the hand-lettered face arrives, text wraps); follow it.
+const nuWatch = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { if (autoAlign) alignToNow(); }) : null;
+function watchNextUp() {
+  const nu = $('#list').querySelector('.nextup');
+  if (!nuWatch) return;
+  nuWatch.disconnect();
+  if (nu) nuWatch.observe(nu);
+}
 function renderList() {
   const el = $('#list'), top = el.scrollTop;
   const a = document.activeElement;
@@ -715,6 +732,7 @@ function renderList() {
     return;
   }
   el.scrollTop = top;
+  if (autoAlign) { alignToNow(); watchNextUp(); }
   const strip = el.querySelector('.strip');
   if (strip) {
     if (stripToNow) { const c = strip.querySelector('.cur'); if (c) strip.scrollLeft = Math.max(0, c.offsetLeft - strip.firstElementChild.offsetLeft - c.offsetWidth); if (state.wx) stripToNow = false; } else if (stripX) strip.scrollLeft = stripX;
@@ -730,8 +748,7 @@ function selectView(v) {
   $('#list').scrollTop = 0;
   render();
   if (state.snap === 'full') setSnap('half'); else setSnap(state.snap);
-  const el = $('#list'), r = el.querySelector('.earlier') || el.querySelector('.row.current') || el.querySelector('.row.next'), nu = el.querySelector('.nextup');
-  if (r && nu && state.snap !== 'peek') el.scrollTop = Math.max(0, r.getBoundingClientRect().top - el.getBoundingClientRect().top - nu.offsetHeight - 14); // today: start at the current stop
+  autoAlign = true; alignToNow(); watchNextUp();
   drawMap(true);
   document.title = v === 'trip' ? `${state.itin.trip} Trip` : `Day ${v + 1}, ${state.itin.trip} Trip`;
 }
@@ -801,6 +818,9 @@ function bind() {
   $('#btnLocate').addEventListener('click', () => locate(true));
   $('#btnRadar').addEventListener('click', toggleRadar);
   bindSheet();
+  for (const ev of ['pointerdown', 'wheel', 'keydown']) $('#list').addEventListener(ev, () => { autoAlign = false; }, { passive: true });
+  document.fonts?.ready.then(() => { if (autoAlign) alignToNow(); });
+  document.fonts?.addEventListener?.('loadingdone', () => { if (autoAlign) alignToNow(); });
 
   let hiddenAt = 0;
   const wake = async () => {
