@@ -63,6 +63,10 @@ issue or pull request with what you did, what is left, and anything surprising.
 - **Tester**: uses the preview like a traveller on a phone (see Testing), on every trip in
   `data/`, files precise bug issues with screenshots and steps, and re-tests fixed ones.
 
+The run instructions for each role are in `docs/agents/<role>.md`. A dispatcher session starts the roles on a schedule
+(`docs/agents/dispatcher.md`). Changes to anything in `docs/agents/` or to this file need the lead's approval in the
+pull request.
+
 ## Labels
 
 `ready` (specified, can be built) · `in-progress` · `bug` · `feature` · `design` · `data` (trip

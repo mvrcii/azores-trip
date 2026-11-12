@@ -51,7 +51,7 @@ export function createPlan(getState) {
   }
 
   // Running-late shift: moves every stop of the day except fixed ones (bookings, flights).
-  const isFixed = (s) => s.bookingNeeded || s.fixed === true;
+  const isFixed = (s) => s.bookingNeeded || s.fixed === true || s.status === 'booked';
   const shiftOf = (day) => state.shift[day.date] || 0;
   const eff = (day, s) => toMin(s.time) + (isFixed(s) ? 0 : shiftOf(day));
 

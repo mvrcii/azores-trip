@@ -96,6 +96,13 @@ test('a shift moves loose stops and leaves fixed ones', () => {
   assert.equal(plan.leaveBy(day, 0).clash, true);
 });
 
+test('a stop with status booked is fixed and ignores the shift', () => {
+  const { plan, day, state } = mk([stop('a', '09:00'), stop('b', '12:00', { status: 'booked' }), stop('c', '14:00', { status: 'to_book' })]);
+  state.shift['2026-11-13'] = 45;
+  assert.equal(plan.eff(day, day.stops[1]), 720);
+  assert.equal(plan.eff(day, day.stops[2]), 885);
+});
+
 test('day totals add drives and walks', () => {
   const { plan, day, state } = mk([stop('a', '09:00', { parking: { ...far, name: 'P' }, walk: { minutes: 5, km: 1 } }), stop('h', '13:00', { type: 'hike', note: 'Loop of 6.5 km', walk: { minutes: 5, km: 0.5 } })]);
   state.routes[day.driveTo.a.key] = { s: 600, m: 5000 };
