@@ -46,7 +46,7 @@ test('?trip opens a trip even while another one is under way', async ({ page }) 
   await expect(page.locator('.head h2')).toHaveText('Tokyo test');
   await expect(page.locator('#tabs button')).toHaveCount(3);
   await page.goto('/?now=2026-11-13T10:40');
-  await expect(page.locator('.nextup')).toContainText('Lunch in Sete Cidades');
+  await expect(page.locator('.nextup')).toContainText('Vista do Rei');
 });
 
 test('trips do not share ticks or cached data', async ({ page }) => {
@@ -55,7 +55,7 @@ test('trips do not share ticks or cached data', async ({ page }) => {
   await page.locator('#done-btn').click();
   await expect(page.locator('#row-tk1-ueno')).toHaveClass(/done/);
   await page.goto(`/?trip=${SM}&day=2&now=2026-11-01T10:00`);
-  await expect(page.locator('#row-d2-inferno')).not.toHaveClass(/done/);
+  await expect(page.locator('#row-fri-boca')).not.toHaveClass(/done/);
   const ls = await storage(page);
   expect(JSON.parse(ls['trip:test-tokyo:done.v1'])).toHaveProperty('tk1-ueno');
   expect(ls[`trip:${SM}:done.v1`] ?? '{}').not.toContain('tk1-ueno');
@@ -70,16 +70,16 @@ test('ticks saved before trips were files move to São Miguel', async ({ page })
   await page.goto('/?now=2026-11-01T10:00');
   await page.evaluate(() => { // the state of a phone that used the app before this change
     localStorage.clear();
-    localStorage.setItem('done.v1', JSON.stringify({ 'd2-inferno': 1 }));
+    localStorage.setItem('done.v1', JSON.stringify({ 'fri-boca': 1 }));
     localStorage.setItem('shift.v1', JSON.stringify({ '2026-11-13': 30 }));
   });
   await page.goto('/?day=2&now=2026-11-01T10:00');
-  await expect(page.locator('#row-d2-inferno')).toHaveClass(/done/);
+  await expect(page.locator('#row-fri-boca')).toHaveClass(/done/);
   await expect(page.locator('.head .sub')).toContainText('plan +30 min');
   const ls = await storage(page);
   expect(ls['done.v1']).toBeUndefined();
   expect(ls['shift.v1']).toBeUndefined();
-  expect(JSON.parse(ls[`trip:${SM}:done.v1`])).toHaveProperty('d2-inferno');
+  expect(JSON.parse(ls[`trip:${SM}:done.v1`])).toHaveProperty('fri-boca');
 });
 
 test('the validator names the file and the problem', () => {

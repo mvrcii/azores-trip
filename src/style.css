@@ -224,6 +224,9 @@ path.casing { stroke: var(--map-casing); }
 .kicker { font-size: .7rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--ink2); display: flex; align-items: center; gap: 8px; }
 .tagf { font-style: normal; font-size: .68rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; padding: 1px 7px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--ink3); color: var(--ink2); white-space: nowrap; }
 .tile .tagf { margin-left: 8px; vertical-align: 2px; }
+.tagf.ok { color: var(--ok); box-shadow: inset 0 0 0 1.5px var(--ok); }
+.tagf.todo { color: var(--warn); box-shadow: inset 0 0 0 1.5px var(--warn); }
+.facts li span { flex: 1; }
 .tagf.paid { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink); }
 .kicker .dotnum { width: 20px; height: 20px; border-radius: 50%; background: var(--day); color: #fff; display: inline-grid; place-items: center; font: 400 .85rem/1 var(--display); letter-spacing: 0; }
 .d-head h2 { font-size: 1.25rem; line-height: 1.15; font-weight: 800; text-wrap: balance; margin: 2px 0; }
