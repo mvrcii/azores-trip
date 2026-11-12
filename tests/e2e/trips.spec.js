@@ -94,7 +94,8 @@ test('ticks saved before trips were files carry over to São Miguel, and the liv
 test('a fresh index wins over a saved one', async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-12-01T02:30:00Z')); // during the Tokyo trip
   await page.goto('/?trip=sao-miguel-2026');
-  await page.evaluate((sm) => localStorage.setItem('trips.v1', JSON.stringify(JSON.parse(localStorage.getItem('trips.v1')).filter((t) => t.id === sm))), SM);
+  await expect(page.locator('.head h2')).toHaveText('São Miguel'); // the app has saved its index by now
+  await page.evaluate((sm) => localStorage.setItem('trips.v1', JSON.stringify([{ id: sm, name: 'São Miguel', start: '2026-11-12', end: '2026-11-18', timezone: 'Atlantic/Azores' }])), SM);
   await page.goto('/'); // the saved index knows only São Miguel; the server's lists Tokyo too
   await expect(page.locator('.head h2')).toHaveText('Old Tokyo on foot');
 });
