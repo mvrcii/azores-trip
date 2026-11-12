@@ -1,5 +1,5 @@
 // Weather fetching shared by the browser app and the hourly GitHub Actions job.
-// Output shape (also the shape of weather.json):
+// Output shape (also the shape of weather/<trip-id>.json):
 // { fetchedAt, loc: { "<lat,lon>": { t:[iso], pp, pr, tc, at, ws, wg, cc, wc, sun:{d,rise,set} } },
 //   sea: { "<lat,lon>": { t, wh, wp, sh } } }
 

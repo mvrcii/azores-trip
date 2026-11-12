@@ -118,6 +118,32 @@ test('a returning visit paints at once on weak signal and switches when the fres
   await expect(page.locator('.head h2')).toHaveText('Old Tokyo on foot'); // the fresh index knows a trip under way
 });
 
+test('the first launch after promotion paints the live app\'s saved plan at once on weak signal', async ({ page }) => {
+  await page.goto(`/?trip=${SM}&now=2026-11-01T10:00`); // trip overview; saves the plan
+  await expect(page.locator('.head h2')).toHaveText('São Miguel');
+  await page.evaluate((sm) => { // storage as the live app left it: the plan and a tick, no trip index, no trip keys
+    const itin = localStorage.getItem(`trip:${sm}:itin.v1`);
+    localStorage.clear();
+    localStorage.setItem('itin.v1', itin);
+    localStorage.setItem('done.v1', JSON.stringify({ 'fri-boca': 1 }));
+  }, SM);
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  await page.route(/\/(data|weather)\//, async (route) => { await gate; await route.fallback(); }); // weak signal
+  const t0 = Date.now();
+  await page.goto('/?now=2026-11-13T10:40&day=2');
+  await expect(page.locator('.nextup')).toBeVisible({ timeout: 1000 });
+  expect(Date.now() - t0).toBeLessThan(1500);
+  await page.locator('#show-past').click(); // the tick from the live app is on an earlier stop
+  await expect(page.locator('#row-fri-boca')).toHaveClass(/done/);
+  const answered = page.waitForResponse('**/data/trips/index.json');
+  release();
+  await answered;
+  await page.waitForTimeout(300);
+  await expect(page.locator('.nextup')).toContainText('Vista do Rei'); // the fresh index keeps the trip under way
+  await expect(page.locator('#row-fri-boca')).toHaveClass(/done/);
+});
+
 test('a fresh index does not move someone who is looking around the open trip', async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-12-01T02:30:00Z'));
   await page.goto('/?trip=sao-miguel-2026');

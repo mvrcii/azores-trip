@@ -61,7 +61,7 @@ function migrateLegacy() {
     try { put(nk, JSON.stringify({ ...JSON.parse(raw(nk) || '{}'), ...JSON.parse(v) })); put(seen, v); } catch { /* unreadable: leave both alone */ }
   }
 }
-function cachedTrips() { // offline and no saved index: the trips whose plan this phone already has
+function cachedTrips() { // no saved index: the trips whose plan this phone already has
   const out = [];
   try {
     for (let i = 0; i < localStorage.length; i++) {
@@ -98,10 +98,10 @@ async function chooseTrip() { // true when a trip is chosen
   if (tripId) return true;
   const fresh = loadIndex();
   let list = validTrips(store.get('trips.v1', null));
+  if (!list.length) list = cachedTrips(); // no saved index yet (first launch after the live app): the plans this phone has
   const want = params.get('trip');
   if (!list.length || (want && !list.some((t) => t.id === want))) list = (await fresh) || list; // nothing to go on: wait for the network
   else freshIndex = fresh; // the phone knows its trips: open one now, never wait on weak signal; followIndex() checks the fresh list
-  if (!list.length) list = cachedTrips();
   const id = list.length ? pickTrip(list) : null;
   if (!id) return false;
   setTrip(id);
