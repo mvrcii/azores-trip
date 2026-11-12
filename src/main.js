@@ -89,19 +89,47 @@ function pickTrip(list) {
   const sorted = [...list].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
   return (sorted.find((t) => t.start <= today(t) && today(t) <= t.end) || sorted.find((t) => t.start > today(t)) || sorted[0])?.id || null;
 }
+function setTrip(id) {
+  tripId = id;
+  state.routes = tstore.get('routes.v1', {}); state.done = tstore.get('done.v1', {}); state.shift = tstore.get('shift.v1', {});
+}
+let freshIndex = null; // the index request still running behind a choice made from the saved index
 async function chooseTrip() { // true when a trip is chosen
   if (tripId) return true;
   const fresh = loadIndex();
   let list = validTrips(store.get('trips.v1', null));
   const want = params.get('trip');
-  if (!list.length || (want && !list.some((t) => t.id === want))) list = (await fresh) || list;
-  else list = (await Promise.race([fresh, new Promise((r) => setTimeout(r, 1500, null))])) || list; // a fresh index wins if it comes quickly (a new or removed trip); weak signal never waits long
+  if (!list.length || (want && !list.some((t) => t.id === want))) list = (await fresh) || list; // nothing to go on: wait for the network
+  else freshIndex = fresh; // the phone knows its trips: open one now, never wait on weak signal; followIndex() checks the fresh list
   if (!list.length) list = cachedTrips();
   const id = list.length ? pickTrip(list) : null;
   if (!id) return false;
-  tripId = id;
-  state.routes = tstore.get('routes.v1', {}); state.done = tstore.get('done.v1', {}); state.shift = tstore.get('shift.v1', {});
+  setTrip(id);
   return true;
+}
+// A fresh index can change the choice: a new trip under way, or the open trip removed. Switch then, unless the user
+// has moved around in the open trip, which still exists.
+async function followIndex() {
+  const fresh = freshIndex; freshIndex = null;
+  const list = fresh && (await fresh);
+  if (!list || !tripId) return;
+  const id = pickTrip(list), gone = !list.some((t) => t.id === tripId);
+  if (id && id !== tripId && (gone || !state.touched)) await switchTrip(id);
+}
+async function switchTrip(id) {
+  const prev = { tripId, itin: state.itin, days: state.days, wx: state.wx, routes: state.routes, done: state.done, shift: state.shift };
+  setTrip(id); state.itin = null; state.wx = null;
+  adoptWx(tstore.get('wx.v1', null));
+  const cached = tstore.get('itin.v1', null);
+  if (cached?.days?.length) { try { applyItin(cached); } catch (err) { console.error(err); state.itin = null; } }
+  await loadItin();
+  if (tripId !== id) return; // switched again meanwhile
+  if (!state.itin) { // the new trip cannot be loaded: stay on the one on screen
+    tripId = prev.tripId; Object.assign(state, { itin: prev.itin, days: prev.days, wx: prev.wx, routes: prev.routes, done: prev.done, shift: prev.shift });
+    return;
+  }
+  state.touched = false;
+  start(); refreshWeather(true); ensureRoutes();
 }
 
 /* ---------- state ---------- */
@@ -205,15 +233,19 @@ async function refreshWeather(force) {
   if (!state.itin || wxBusy) return;
   if (!force && Date.now() - state.lastWxTry < 60000) return;
   state.lastWxTry = Date.now(); wxBusy = true; paintAge();
+  const id = tripId;
   try {
-    if (adoptWx(await fetchWeather(state.itin, todayIn(state.tz).date, fetch, state.wx))) render();
+    const wx = await fetchWeather(state.itin, todayIn(state.tz).date, fetch, state.wx);
+    if (tripId === id && adoptWx(wx)) render();
   } catch {
     try { // hourly snapshot published with the site
-      const r = await fetch(`weather/${tripId}.json?t=${Math.floor(Date.now() / 600000)}`, { signal: AbortSignal.timeout?.(8000) });
-      if (r.ok && adoptWx(await r.json())) render();
+      const r = await fetch(`weather/${id}.json?t=${Math.floor(Date.now() / 600000)}`, { signal: AbortSignal.timeout?.(8000) });
+      if (r.ok && tripId === id && adoptWx(await r.json())) render();
     } catch { /* offline: keep what we have */ }
   }
-  wxBusy = false; state.wxTried = true; if (!state.wx) renderList();
+  wxBusy = false; state.wxTried = true;
+  if (tripId !== id) return refreshWeather(true); // another trip was opened meanwhile: fetch its forecast
+  if (!state.wx) renderList();
   paintAge();
 }
 function ageText() {
@@ -855,7 +887,7 @@ function bind() {
     if (document.hidden) { hiddenAt = Date.now(); stopWatch(); return; }
     if (geoWanted) startWatch();
     const away = hiddenAt ? Date.now() - hiddenAt : 0; hiddenAt = 0;
-    if (!state.itin) { if (!(await chooseTrip()) || !(await loadItin())) return; start(); refreshWeather(true); ensureRoutes(); return; }
+    if (!state.itin) { if (!(await chooseTrip()) || !(await loadItin())) return; start(); refreshWeather(true); ensureRoutes(); followIndex(); return; }
     const today = now().date;
     if (today !== lastDate) { // new day since the app was last looked at
       lastDate = today;
@@ -868,7 +900,7 @@ function bind() {
   };
   document.addEventListener('visibilitychange', wake);
   window.addEventListener('pageshow', (e) => { if (e.persisted) wake(); });
-  window.addEventListener('online', async () => { paintAge(); if (!state.itin) { if (!(await chooseTrip()) || !(await loadItin())) return; start(); } refreshWeather(true); ensureRoutes(); });
+  window.addEventListener('online', async () => { paintAge(); if (!state.itin) { if (!(await chooseTrip()) || !(await loadItin())) return; start(); followIndex(); } refreshWeather(true); ensureRoutes(); });
   window.addEventListener('offline', paintAge);
   setInterval(() => { if (!document.hidden) refreshWeather(true); }, 15 * 60 * 1000);
   setInterval(() => { if (!document.hidden && state.itin) render(); else paintAge(); }, 60 * 1000);
@@ -888,12 +920,14 @@ function applyItin(itin) {
   for (const k of Object.keys(state.routes)) if (!keep.has(k)) delete state.routes[k]; // drop routes of an older plan
 }
 async function loadItin() { // true when a new or changed itinerary was applied
+  const id = tripId;
   try {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 8000);
-    const r = await fetch(`data/trips/${tripId}.json`, { signal: ctl.signal, cache: 'no-cache' });
+    const r = await fetch(`data/trips/${id}.json`, { signal: ctl.signal, cache: 'no-cache' });
     const itin = r.ok ? await r.json() : null;
     clearTimeout(timer);
+    if (tripId !== id) return false; // another trip was opened meanwhile
     if (!itin?.days?.length || itin.days.some((d) => !d.items?.some((i) => !i.mode))) return false;
     if (state.itin && JSON.stringify(itin) === JSON.stringify(tstore.get('itin.v1', null))) return false;
     applyItin(itin); tstore.set('itin.v1', itin); // store only what the app could digest
@@ -913,6 +947,15 @@ async function reloadItin() { // pick up a changed plan without throwing the use
   if (!state.touched && !date) start(); else selectView(i >= 0 ? i : 'trip');
   ensureRoutes();
 }
+async function retryWithFreshIndex() { // the saved index named a trip this phone has no plan for and the server does not give
+  const fresh = freshIndex; freshIndex = null;
+  if (!fresh || !(await fresh)) return false; // the fresh list is saved by now
+  tripId = null;
+  if (!(await chooseTrip())) return false;
+  freshIndex = null; // just fetched
+  state.wx = null; adoptWx(tstore.get('wx.v1', null));
+  return loadItin();
+}
 async function boot() {
   initMap(); bind();
   if ('serviceWorker' in navigator && import.meta.env.PROD) navigator.serviceWorker.register('sw.js').catch(() => {});
@@ -927,9 +970,11 @@ async function boot() {
       try { state.wx = null; applyItin(cached); start(); painted = true; } catch (err2) { console.error(err2); state.itin = null; } // bad saved weather? go on without it
     }
   }
-  if (painted) loadItin().then((changed) => { if (!changed) return; if (!state.touched) start(); else { const d = state.view === 'trip' ? -1 : Math.min(state.view, state.days.length - 1); selectView(d < 0 ? 'trip' : d); } ensureRoutes(); });
-  else if (await loadItin()) { try { start(); } catch (err) { console.error(err); state.wx = null; start(); } }
-  else { tripId = null; $('#list').innerHTML = '<p class="nowx">Could not load the itinerary. Check your connection; the app retries when you come back to it.</p>'; return; }
+  if (painted) {
+    loadItin().then((changed) => { if (!changed) return; if (!state.touched) start(); else { const d = state.view === 'trip' ? -1 : Math.min(state.view, state.days.length - 1); selectView(d < 0 ? 'trip' : d); } ensureRoutes(); });
+    followIndex();
+  } else if (await loadItin() || await retryWithFreshIndex()) { try { start(); } catch (err) { console.error(err); state.wx = null; start(); } }
+  else { tripId = null; freshIndex = null; $('#list').innerHTML = '<p class="nowx">Could not load the itinerary. Check your connection; the app retries when you come back to it.</p>'; return; }
 
   if (!state.wx) { try { const r = await fetch(`weather/${tripId}.json`, { signal: AbortSignal.timeout?.(8000) }); if (r.ok && adoptWx(await r.json())) render(); } catch { /* none */ } }
   refreshWeather(true);

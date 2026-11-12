@@ -100,6 +100,39 @@ test('a fresh index wins over a saved one', async ({ page }) => {
   await expect(page.locator('.head h2')).toHaveText('Old Tokyo on foot');
 });
 
+test('a returning visit paints at once on weak signal and switches when the fresh index changes the choice', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-12-01T02:30:00Z')); // during the Tokyo trip
+  await page.goto('/?trip=sao-miguel-2026'); // saves the São Miguel plan
+  await expect(page.locator('.head h2')).toHaveText('São Miguel');
+  await page.evaluate((sm) => localStorage.setItem('trips.v1', JSON.stringify([{ id: sm, name: 'São Miguel', start: '2026-11-12', end: '2026-11-18', timezone: 'Atlantic/Azores' }])), SM);
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  await page.route('**/data/trips/**', async (route) => { await gate; await route.fallback(); }); // weak signal: data answers only when released
+  const t0 = Date.now();
+  await page.goto('/');
+  await expect(page.locator('.head h2')).toHaveText('São Miguel', { timeout: 1000 }); // the saved plan, without waiting on the index
+  expect(Date.now() - t0).toBeLessThan(1500);
+  release();
+  await expect(page.locator('.head h2')).toHaveText('Old Tokyo on foot'); // the fresh index knows a trip under way
+});
+
+test('a fresh index does not move someone who is looking around the open trip', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-12-01T02:30:00Z'));
+  await page.goto('/?trip=sao-miguel-2026');
+  await expect(page.locator('.head h2')).toHaveText('São Miguel');
+  await page.evaluate((sm) => localStorage.setItem('trips.v1', JSON.stringify([{ id: sm, name: 'São Miguel', start: '2026-11-12', end: '2026-11-18', timezone: 'Atlantic/Azores' }])), SM);
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  await page.route('**/data/trips/index.json', async (route) => { await gate; await route.fallback(); });
+  await page.goto('/');
+  await page.locator('#tabs button').nth(2).click(); // the user picks a day
+  release();
+  await page.waitForResponse('**/data/trips/index.json');
+  await page.waitForTimeout(300);
+  await expect(page.locator('.head h2')).not.toHaveText('Old Tokyo on foot');
+  await expect(page.locator('#tabs button').nth(2)).toHaveAttribute('aria-current', 'page');
+});
+
 test('the validator names the file and the problem', () => {
   const dir = mkdtempSync(join(tmpdir(), 'trips-'));
   try {
