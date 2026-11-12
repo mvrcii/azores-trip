@@ -93,6 +93,27 @@ test('ticks saved before trips were files carry over to São Miguel, and the liv
   expect(Object.keys(JSON.parse(ls['done.v1']))).toEqual(['fri-boca', 'fri-hike']); // the preview never writes the live app's keys
 });
 
+test('a shift reset or un-tick in the live app carries over; the preview\'s own ticks stay', async ({ page }) => {
+  await page.goto('/?now=2026-11-01T10:00');
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem('done.v1', JSON.stringify({ 'fri-boca': 1 }));
+    localStorage.setItem('shift.v1', JSON.stringify({ '2026-11-13': 30 }));
+  });
+  await page.goto('/?day=2&now=2026-11-01T10:00');
+  await expect(page.locator('.head .sub')).toContainText('plan +30 min');
+  await page.locator('#row-fri-ferraria').click();
+  await page.locator('#done-btn').click(); // a tick made only in the preview
+  await page.evaluate(() => { // the live app resets the day and un-ticks its stop: it deletes the entries
+    localStorage.setItem('done.v1', JSON.stringify({}));
+    localStorage.setItem('shift.v1', JSON.stringify({}));
+  });
+  await page.goto('/?day=2&now=2026-11-01T10:00');
+  await expect(page.locator('.head .sub')).not.toContainText('plan +');
+  await expect(page.locator('#row-fri-boca')).not.toHaveClass(/done/);
+  await expect(page.locator('#row-fri-ferraria')).toHaveClass(/done/);
+});
+
 test('a fresh index wins over a saved one', async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-12-01T02:30:00Z')); // during the Tokyo trip
   await page.goto('/?trip=sao-miguel-2026');

@@ -55,10 +55,17 @@ function migrateLegacy() {
     const v = raw(k), nk = `trip:${LEGACY_TRIP}:${k}`;
     if (v != null && raw(nk) == null) put(nk, v);
   }
-  for (const k of ['done.v1', 'shift.v1']) { // ticks from both apps are kept; the live app's shifts win
+  // Ticks and shifts: replay what the live app changed since the last copy (added, changed or removed entries, so an
+  // un-tick or a shift reset there carries over too); entries the live app did not touch keep the preview's value.
+  for (const k of ['done.v1', 'shift.v1']) {
     const v = raw(k), nk = `trip:${LEGACY_TRIP}:${k}`, seen = `trip:${LEGACY_TRIP}:legacy.${k}`;
     if (v == null || v === raw(seen)) continue; // nothing there, or nothing new since the last copy
-    try { put(nk, JSON.stringify({ ...JSON.parse(raw(nk) || '{}'), ...JSON.parse(v) })); put(seen, v); } catch { /* unreadable: leave both alone */ }
+    try {
+      const before = JSON.parse(raw(seen) || '{}') || {}, live = JSON.parse(v) || {}, mine = JSON.parse(raw(nk) || '{}') || {};
+      for (const key of Object.keys(before)) if (!(key in live)) delete mine[key];
+      for (const [key, val] of Object.entries(live)) if (before[key] !== val) mine[key] = val;
+      put(nk, JSON.stringify(mine)); put(seen, v);
+    } catch { /* unreadable: leave both alone */ }
   }
 }
 function cachedTrips() { // no saved index: the trips whose plan this phone already has
